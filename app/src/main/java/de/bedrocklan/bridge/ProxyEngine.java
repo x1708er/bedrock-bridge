@@ -1,5 +1,12 @@
 package de.bedrocklan.bridge;
 
+import android.content.Context;
+
+import de.bedrocklan.bridge.bedrock.BedrockBridge;
+import de.bedrocklan.bridge.nethernet.NetherNetClient;
+import de.bedrocklan.bridge.raknet.RakNet;
+import de.bedrocklan.bridge.raknet.RakSession;
+
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -12,35 +19,38 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Lässt einen entfernten Bedrock-Server im LAN erscheinen (Prinzip wie "phantom"):
- * - beantwortet RakNet-Pings (UDP 19132) mit dem MOTD des echten Servers
- * - leitet alle anderen Pakete pro Gerät an den echten Server weiter und zurück
+ * Lässt einen entfernten Bedrock-Server im LAN erscheinen:
+ * - NetherNet-Modus: Server via WebRTC (/v1/join) verbinden, Konsole via eigenem
+ *   RakNet-Server (Port 19132) ankoppeln. MOTD kommt aus dem HTTP-Status.
+ * - Fallback: alter RakNet-UDP-Relay, falls der Server kein NetherNet anbietet.
  */
-final class ProxyEngine {
+final class ProxyEngine implements RakSession.Host, BedrockBridge.Listener {
     static final int LOCAL_PORT = 19132;
 
-    private static final byte[] MAGIC = {
-            0x00, (byte) 0xff, (byte) 0xff, 0x00, (byte) 0xfe, (byte) 0xfe, (byte) 0xfe, (byte) 0xfe,
-            (byte) 0xfd, (byte) 0xfd, (byte) 0xfd, (byte) 0xfd, 0x12, 0x34, 0x56, 0x78};
     private static final long OFFLINE_AFTER_MS = 10_000;
-    private static final long SESSION_IDLE_MS = 60_000;
+    private static final long SESSION_IDLE_MS = 120_000;
     private static final String NOT_REACHABLE =
             "Läuft, aber der Server antwortet nicht. Adresse und Port prüfen.";
 
+    private final Context appContext;
     private final String host;
     private final int port;
     private final long guid = new Random().nextLong();
-    private final Map<InetSocketAddress, Session> sessions = new ConcurrentHashMap<>();
+    private final Map<InetSocketAddress, RakSession> rakSessions = new ConcurrentHashMap<>();
+    private final Map<RakSession, BedrockBridge> bridges = new ConcurrentHashMap<>();
+    private final Map<InetSocketAddress, RelaySession> relays = new ConcurrentHashMap<>();
 
     private volatile boolean running;
-    private volatile InetSocketAddress remote;
-    private volatile String remoteInfo;
+    private volatile boolean netherNetMode;
+    private volatile String netherNetMotd;
+    private volatile String remoteInfo; // MOTD des Servers (RakNet-Fallback)
     private volatile long lastPong;
     private volatile String problem = "Starte …";
     private DatagramSocket mainSocket;
     private volatile DatagramSocket pingSocket;
 
-    ProxyEngine(String host, int port) {
+    ProxyEngine(Context appContext, String host, int port) {
+        this.appContext = appContext;
         this.host = host;
         this.port = port;
     }
@@ -52,7 +62,7 @@ final class ProxyEngine {
         s.bind(new InetSocketAddress(LOCAL_PORT));
         mainSocket = s;
         running = true;
-        spawn(this::pingLoop, "pinger");
+        spawn(this::statusLoop, "status");
         spawn(this::mainLoop, "main");
         spawn(this::cleanupLoop, "cleanup");
     }
@@ -61,8 +71,14 @@ final class ProxyEngine {
         running = false;
         close(mainSocket);
         close(pingSocket);
-        for (Session s : sessions.values()) s.close();
-        sessions.clear();
+        for (RakSession s : rakSessions.values()) {
+            BedrockBridge b = bridges.remove(s);
+            if (b != null) b.close("beendet");
+            s.close();
+        }
+        rakSessions.clear();
+        for (RelaySession s : relays.values()) s.close();
+        relays.clear();
         State.clients = 0;
     }
 
@@ -80,6 +96,8 @@ final class ProxyEngine {
                 int id = buf[0] & 0xff;
                 if (id == 0x01 || id == 0x02) {
                     handlePing(client, buf, len);
+                } else if (netherNetMode && relays.isEmpty()) {
+                    handleNetherNetPacket(client, buf, len);
                 } else {
                     forward(client, buf, len);
                 }
@@ -92,37 +110,46 @@ final class ProxyEngine {
         }
     }
 
-    private void pingLoop() {
+    private void handleNetherNetPacket(InetSocketAddress client, byte[] buf, int len) {
+        if ((buf[0] & 0xe0) == 0x80 || buf[0] == RakNet.FLAG_ACK || buf[0] == RakNet.FLAG_NAK) {
+            RakSession s = rakSessions.get(client);
+            if (s != null) s.handleDatagram(buf, len);
+            return;
+        }
+        RakSession s = rakSessions.get(client);
+        if (s == null) {
+            s = new RakSession(this, client);
+            rakSessions.put(client, s);
+        }
+        if (!s.handleOffline(buf, len)) {
+            // uninteressantes Offline-Paket (z. B. alter Relay-Rest)
+        }
+    }
+
+    private void statusLoop() {
         byte[] rb = new byte[2048];
         try (DatagramSocket ps = new DatagramSocket()) {
             ps.setSoTimeout(2000);
             pingSocket = ps;
             while (running) {
                 try {
-                    InetSocketAddress r = new InetSocketAddress(host, port);
-                    if (r.isUnresolved()) {
-                        remoteInfo = null;
-                        problem = "Adresse nicht gefunden. Tippfehler oder kein Internet?";
-                    } else {
-                        remote = r;
-                        byte[] ping = buildPing();
-                        ps.send(new DatagramPacket(ping, ping.length, r));
-                        DatagramPacket rp = new DatagramPacket(rb, rb.length);
-                        ps.receive(rp);
-                        String info = parsePong(rb, rp.getLength());
-                        if (info != null) {
-                            remoteInfo = info;
-                            lastPong = System.currentTimeMillis();
-                            problem = null;
-                        } else {
-                            problem = NOT_REACHABLE;
-                        }
+                    // 1. Versuch: NetherNet-Status über den HTTP-Endpunkt des Servers.
+                    NetherNetClient.Status status = new NetherNetClient(host, port).fetchStatus(2500);
+                    if (status != null) {
+                        netherNetMode = true;
+                        netherNetMotd = status.rakNetMotd(guid >>> 1);
+                        lastPong = System.currentTimeMillis();
+                        problem = null;
+                    } else if (!netherNetMode || rakSessions.isEmpty() && relays.isEmpty()) {
+                        netherNetMode = false;
+                        // 2. Fallback: klassischer RakNet-Ping.
+                        rakNetPing(ps, rb);
                     }
                 } catch (SocketTimeoutException e) {
-                    problem = NOT_REACHABLE;
+                    if (rakSessions.isEmpty() && relays.isEmpty()) problem = NOT_REACHABLE;
                 } catch (IOException e) {
                     if (!running) return;
-                    problem = "Keine Netzwerkverbindung.";
+                    if (rakSessions.isEmpty() && relays.isEmpty()) problem = "Keine Netzwerkverbindung.";
                 }
                 publishStatus();
                 if (!sleep(3000)) return;
@@ -135,11 +162,32 @@ final class ProxyEngine {
         }
     }
 
+    private void rakNetPing(DatagramSocket ps, byte[] rb) throws IOException {
+        InetSocketAddress r = new InetSocketAddress(host, port);
+        if (r.isUnresolved()) {
+            problem = "Adresse nicht gefunden. Tippfehler oder kein Internet?";
+            return;
+        }
+        byte[] ping = buildPing();
+        ps.send(new DatagramPacket(ping, ping.length, r));
+        DatagramPacket rp = new DatagramPacket(rb, rb.length);
+        ps.receive(rp);
+        String info = parsePong(rb, rp.getLength());
+        if (info != null) {
+            remoteInfo = info;
+            lastPong = System.currentTimeMillis();
+            problem = null;
+        } else {
+            problem = NOT_REACHABLE;
+        }
+    }
+
     private void cleanupLoop() {
         while (running) {
-            if (!sleep(10_000)) return;
+            if (!sleep(500)) return;
+            for (RakSession s : rakSessions.values()) s.tick();
             long now = System.currentTimeMillis();
-            for (Session s : sessions.values()) {
+            for (RelaySession s : relays.values()) {
                 if (now - s.lastSeen > SESSION_IDLE_MS) s.close();
             }
             publishStatus();
@@ -151,29 +199,85 @@ final class ProxyEngine {
     private void handlePing(InetSocketAddress client, byte[] buf, int len) throws IOException {
         if (len < 25) return;
         for (int i = 0; i < 16; i++) {
-            if (buf[9 + i] != MAGIC[i]) return;
+            if (buf[9 + i] != RakNet.MAGIC[i]) return;
         }
-        String info = remoteInfo;
-        if (info == null || System.currentTimeMillis() - lastPong > OFFLINE_AFTER_MS) return;
-
-        byte[] str = rewrite(info).getBytes(StandardCharsets.UTF_8);
+        String info;
+        if (netherNetMode && netherNetMotd != null) {
+            info = netherNetMotd;
+            if (System.currentTimeMillis() - lastPong > 60_000) return; // Status veraltet
+        } else {
+            info = remoteInfo;
+            if (info == null || System.currentTimeMillis() - lastPong > OFFLINE_AFTER_MS) return;
+            info = rewrite(info);
+        }
+        byte[] str = info.getBytes(StandardCharsets.UTF_8);
         ByteBuffer b = ByteBuffer.allocate(35 + str.length);
         b.put((byte) 0x1c);
         b.put(buf, 1, 8);              // Zeitstempel des Clients zurückgeben
         b.putLong(guid);
-        b.put(MAGIC);
+        b.put(RakNet.MAGIC);
         b.putShort((short) str.length);
         b.put(str);
         mainSocket.send(new DatagramPacket(b.array(), b.position(), client));
     }
 
+    // ------------------------------------------------------------- RakSession.Host
+
+    @Override
+    public void sendUdp(InetSocketAddress to, byte[] data) {
+        try {
+            mainSocket.send(new DatagramPacket(data, data.length, to));
+        } catch (IOException ignored) {
+        }
+    }
+
+    @Override
+    public long serverGuid() {
+        return guid;
+    }
+
+    @Override
+    public void onGameBatch(RakSession session, byte[] batch, int len) {
+        BedrockBridge bridge = bridges.get(session);
+        if (bridge == null) {
+            bridge = new BedrockBridge(appContext, session, host, port, this);
+            bridges.put(session, bridge);
+            bridge.start();
+        }
+        bridge.fromConsole(batch);
+    }
+
+    @Override
+    public void onDisconnect(RakSession session, String reason) {
+        rakSessions.remove(session.client());
+        BedrockBridge bridge = bridges.remove(session);
+        if (bridge != null) bridge.close(reason);
+        session.close();
+    }
+
+    @Override
+    public void onLog(String msg) {
+        // Diagnoseausgaben werden aktuell nicht in der Oberfläche angezeigt.
+    }
+
+    // ------------------------------------------------------------- BedrockBridge.Listener
+
+    @Override
+    public void onBridgeClosed(BedrockBridge bridge, String reason) {
+        bridges.remove(bridge.session());
+        rakSessions.remove(bridge.session().client());
+        bridge.session().close();
+    }
+
+    // ---------------------------------------------------------------- Relay (RakNet-Fallback)
+
     private void forward(InetSocketAddress client, byte[] buf, int len) throws IOException {
-        Session s = sessions.get(client);
+        RelaySession s = relays.get(client);
         if (s == null) {
-            InetSocketAddress r = remote;
-            if (r == null || r.isUnresolved()) return;
-            s = new Session(client, r);
-            sessions.put(client, s);
+            InetSocketAddress r = new InetSocketAddress(host, port);
+            if (r.isUnresolved()) return;
+            s = new RelaySession(client, r);
+            relays.put(client, s);
             s.start();
             publishStatus();
         }
@@ -194,7 +298,7 @@ final class ProxyEngine {
         ByteBuffer b = ByteBuffer.allocate(33);
         b.put((byte) 0x01);
         b.putLong(System.currentTimeMillis());
-        b.put(MAGIC);
+        b.put(RakNet.MAGIC);
         b.putLong(guid);
         return b.array();
     }
@@ -210,15 +314,18 @@ final class ProxyEngine {
 
     private void publishStatus() {
         if (!running) return;
-        int n = sessions.size();
+        int n = rakSessions.size() + relays.size();
         State.clients = n;
+        State.netherNet = netherNetMode;
         String p = problem;
         if (p != null) {
             State.status = p;
         } else if (n > 0) {
-            State.status = "Läuft. Server erreichbar. Konsole ist verbunden.";
+            State.status = "Läuft. Konsole ist verbunden.";
+        } else if (netherNetMode) {
+            State.status = "Läuft. Server via NetherNet erreichbar. Jetzt in Minecraft auf der Konsole die LAN-Spiele öffnen.";
         } else {
-            State.status = "Läuft. Server erreichbar. Jetzt in Minecraft auf der Konsole die LAN-Spiele öffnen.";
+            State.status = "Läuft. Server erreichbar (RakNet). Jetzt in Minecraft auf der Konsole die LAN-Spiele öffnen.";
         }
     }
 
@@ -241,21 +348,21 @@ final class ProxyEngine {
         if (s != null) s.close();
     }
 
-    /** Eine Verbindung einer Konsole: eigener Socket zum echten Server. */
-    private final class Session {
+    /** Eine Verbindung einer Konsole im RakNet-Fallback: eigener Socket zum echten Server. */
+    private final class RelaySession {
         final InetSocketAddress client;
         final InetSocketAddress target;
         final DatagramSocket up;
         volatile long lastSeen = System.currentTimeMillis();
 
-        Session(InetSocketAddress client, InetSocketAddress target) throws IOException {
+        RelaySession(InetSocketAddress client, InetSocketAddress target) throws IOException {
             this.client = client;
             this.target = target;
             this.up = new DatagramSocket();
         }
 
         void start() {
-            spawn(this::pump, "session");
+            spawn(this::pump, "relay");
         }
 
         void toRemote(byte[] b, int len) {
@@ -282,7 +389,7 @@ final class ProxyEngine {
 
         void close() {
             up.close();
-            sessions.remove(client, this);
+            relays.remove(client, this);
         }
     }
 }

@@ -26,3 +26,8 @@ android {
         encoding 'UTF-8'
     }
 }
+
+dependencies {
+    // Google WebRTC (NetherNet läuft über WebRTC-DataChannels)
+    implementation 'io.getstream:stream-webrtc-android:1.3.10'
+}

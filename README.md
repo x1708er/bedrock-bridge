@@ -1,7 +1,25 @@
 # Bedrock LAN-Brücke
 
 Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste deiner Konsole an (Prinzip wie „phantom“).
-Eine Seite, ein Eingabefeld, ein Knopf. Keine Werbung, keine Abhängigkeiten.
+Eine Seite, ein Eingabefeld, ein Knopf. Keine Werbung, keine Abhängigkeiten außer WebRTC.
+
+## NetherNet-Unterstützung (Beta)
+
+Da Mojang RakNet für öffentliche Server ablöst, verbindet die App sich wie der offizielle
+Client per **NetherNet (WebRTC)** mit dem Server: `GET/POST /v1/join` am Server, dann ein
+verschlüsselter DataChannel. Die Konsole bleibt im LAN bei RakNet und hängt an dem
+selbstgebauten RakNet-Server der App (Port 19132), der die Verbindung vollständig
+terminiert (Handshake, Frames, ACKs, Splits, Kompression).
+
+- Server mit NetherNet-Endpunkt (z. B. aktuelle BDS) → direkter WebRTC-Upstream,
+  MOTD aus `GET /v1/join`.
+- Server ohne NetherNet → automatischer Fallback auf den klassischen
+  RakNet-UDP-Relay (wie vorher).
+- Ohne Xbox-Konto: das `/v1/join`-Verfahren des Clients für „ externe Server“ braucht
+  kein Signaling bei Mojang.
+
+Erforderlich für NetherNet: Server und App müssen WebRTC-Verbindungen zulassen;
+bei strictem NAT kann ein TURN-Server nötig sein (aktuell nur STUN konfiguriert).
 
 ## APK bauen (ohne Android Studio)
 1. Neues GitHub-Repository anlegen, den Inhalt dieses Ordners hochladen (inkl. `.github`).
@@ -16,5 +34,8 @@ Handy und Konsole im selben WLAN → Serveradresse eintragen → Starten → in 
 in der LAN-Liste auswählen. Benachrichtigungen erlauben, sonst bleibt der Dienst unsichtbar im Hintergrund.
 
 ## Technik
-UDP-Port 19132. Beantwortet RakNet-Pings mit dem MOTD des echten Servers (Server-ID und Ports umgeschrieben)
-und leitet alle anderen Pakete pro Konsole an den echten Server weiter. Nintendo Switch wird laut phantom nicht unterstützt.
+LAN-Seite: RakNet-Server auf UDP 19132 (Unconnected-Ping mit umgeschriebener Server-ID,
+Connection-Handshake, Frame-Sets mit ACK/Resend, Split-Reassembly). Upstream: NetherNet über
+WebRTC-DataChannels mit Segment-Framing; Bedrock-Batches werden zwischen den Transporten
+1:1 verschoben. RakNet-Fallback: transparentes UDP-Relay pro Konsole (Prinzip wie „phantom“).
+Nintendo Switch wird laut phantom nicht unterstützt.
