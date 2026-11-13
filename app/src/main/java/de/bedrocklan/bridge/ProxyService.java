@@ -51,7 +51,7 @@ public class ProxyService extends Service {
         acquireLocks();
 
         new Thread(() -> {
-            ProxyEngine e = new ProxyEngine(host, port);
+            ProxyEngine e = new ProxyEngine(getApplicationContext(), host, port);
             try {
                 e.start();
             } catch (IOException ex) {
