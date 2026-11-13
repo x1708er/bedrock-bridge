@@ -59,7 +59,8 @@ public final class LoginRewriter {
         if (algo == ALGO_DEFLATE) {
             entries = inflate(message, 1);
             if (entries == null) {
-                Guard.log("Deko: inflate fehlgeschlagen (" + message.length + " Bytes)");
+                Guard.log("Deko: inflate fehlgeschlagen (" + message.length + " Bytes), Anfang: "
+                        + hex(message, 0, Math.min(24, message.length)) + ", Grund: " + inflateError);
                 return null;
             }
         } else if (algo == ALGO_NONE) {
@@ -252,7 +253,10 @@ public final class LoginRewriter {
         return out.toByteArray();
     }
 
+    private static String inflateError = "?";
+
     private static byte[] inflate(byte[] data, int from) {
+        inflateError = "?";
         try {
             Inflater inf = new Inflater();
             inf.setInput(data, from, data.length - from);
@@ -262,16 +266,23 @@ public final class LoginRewriter {
             while (!inf.finished()) {
                 int n = inf.inflate(buf);
                 if (n == 0) {
-                    if (inf.needsInput()) return null;
+                    if (inf.needsInput()) {
+                        inflateError = "needsInput bei " + inf.getRemaining() + " Restbytes";
+                        return null;
+                    }
                     continue;
                 }
                 total += n;
-                if (total > MAX_BATCH) return null;
+                if (total > MAX_BATCH) {
+                    inflateError = "zu groß";
+                    return null;
+                }
                 out.write(buf, 0, n);
             }
             inf.end();
             return out.toByteArray();
         } catch (Exception e) {
+            inflateError = e.toString();
             return null;
         }
     }
