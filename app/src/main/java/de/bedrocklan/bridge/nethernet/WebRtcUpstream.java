@@ -1,7 +1,5 @@
 package de.bedrocklan.bridge.nethernet;
 
-import android.content.Context;
-
 import org.webrtc.DataChannel;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
@@ -13,7 +11,6 @@ import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,12 +19,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * WebRTC-Datenkanal zum Bedrock-Server (NetherNet): SDP-Aushandlung über den
- * HTTP-Endpunkt des Servers, dann ReliableDataChannel mit NetherNet-Segment-Framing.
+ * HTTP-Endpunkt des Servers, dann ReliableDataChannel mit Segment-Framing.
  */
 public final class WebRtcUpstream {
-    /** Vanilla-negotiierte maximale SCTP-Nachrichtengröße minus Segmentzähler-Byte. */
-    private static final int SEGMENT_PAYLOAD = 262143;
-
     public interface Listener {
         void onMessage(byte[] netherNetMessage);
 
@@ -36,36 +30,26 @@ public final class WebRtcUpstream {
         void onLog(String msg);
     }
 
-    private final Context appContext;
+    private final PeerConnectionFactory factory;
     private final NetherNetClient signaling;
     private final Listener listener;
 
-    private PeerConnectionFactory factory;
     private PeerConnection pc;
     private DataChannel reliable;
 
     private final List<String> candidates = new ArrayList<>();
-
-    // Segment-Reassembly des empfangenen Datenstroms
-    private byte[] pending;
-    private int pendingRemaining = -1;
+    private final Framer framer = new Framer();
 
     private volatile boolean closed;
 
-    public WebRtcUpstream(Context appContext, NetherNetClient signaling, Listener listener) {
-        this.appContext = appContext;
+    public WebRtcUpstream(PeerConnectionFactory factory, NetherNetClient signaling, Listener listener) {
+        this.factory = factory;
         this.signaling = signaling;
         this.listener = listener;
     }
 
     /** Baut die WebRTC-Verbindung auf (blockiert bis DataChannel offen oder Fehler). */
     public void connect() throws IOException, InterruptedException {
-        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
-                .builder(appContext)
-                .setEnableInternalTracer(false)
-                .createInitializationOptions());
-        factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
-
         final CountDownLatch gatherComplete = new CountDownLatch(1);
         PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(
                 Collections.singletonList(
@@ -160,11 +144,14 @@ public final class WebRtcUpstream {
             public void onMessage(DataChannel.Buffer buffer) {
                 byte[] data = new byte[buffer.data.remaining()];
                 buffer.data.get(data);
+                byte[] message;
                 try {
-                    handleIncoming(data);
+                    message = framer.feed(data);
                 } catch (RuntimeException e) {
                     closeUpstream("Nachricht defekt: " + e.getMessage());
+                    return;
                 }
+                if (message != null) listener.onMessage(message);
             }
         });
 
@@ -255,57 +242,10 @@ public final class WebRtcUpstream {
         listener.onLog("NetherNet verbunden");
     }
 
-    /** Sendet eine NetherNet-Nachricht ([algo][zlib-Payload]) mit Segment-Framing. */
-    public synchronized void sendMessage(byte[] message) {
-        DataChannel dc = reliable;
-        if (dc == null || closed) return;
-        int segments = (message.length + SEGMENT_PAYLOAD - 1) / SEGMENT_PAYLOAD;
-        if (segments > 255) {
-            closeUpstream("Nachricht zu groß");
-            return;
-        }
-        int remaining = segments - 1;
-        try {
-            if (message.length == 0) {
-                dc.send(new DataChannel.Buffer(ByteBuffer.wrap(new byte[1]), true));
-                return;
-            }
-            for (int off = 0; off < message.length; off += SEGMENT_PAYLOAD) {
-                int len = Math.min(SEGMENT_PAYLOAD, message.length - off);
-                byte[] seg = new byte[len + 1];
-                seg[0] = (byte) remaining;
-                System.arraycopy(message, off, seg, 1, len);
-                dc.send(new DataChannel.Buffer(ByteBuffer.wrap(seg), true));
-                remaining--;
-            }
-        } catch (IllegalStateException e) {
-            closeUpstream("send: " + e.getMessage());
-        }
-    }
-
-    private void handleIncoming(byte[] data) {
-        if (data.length < 2) throw new IllegalArgumentException("zu kurz");
-        int remaining = data[0] & 0xff;
-        byte[] payload = new byte[data.length - 1];
-        System.arraycopy(data, 1, payload, 0, payload.length);
-        if (pendingRemaining >= 0 && pendingRemaining - 1 != remaining) {
-            throw new IllegalArgumentException("Segmentkette kaputt");
-        }
-        pending = pending == null ? payload : concat(pending, payload);
-        pendingRemaining = remaining;
-        if (pendingRemaining == 0) {
-            byte[] complete = pending;
-            pending = null;
-            pendingRemaining = -1;
-            listener.onMessage(complete);
-        }
-    }
-
-    private static byte[] concat(byte[] a, byte[] b) {
-        byte[] r = new byte[a.length + b.length];
-        System.arraycopy(a, 0, r, 0, a.length);
-        System.arraycopy(b, 0, r, a.length, b.length);
-        return r;
+    /** Sendet eine NetherNet-Nachricht mit Segment-Framing. */
+    public void sendMessage(byte[] message) {
+        if (closed) return;
+        Framer.send(reliable, message);
     }
 
     public void closeUpstream(String reason) {
@@ -313,20 +253,14 @@ public final class WebRtcUpstream {
         closed = true;
         DataChannel dc = reliable;
         PeerConnection p = pc;
-        PeerConnectionFactory f = factory;
         reliable = null;
         pc = null;
-        factory = null;
         try {
             if (dc != null) dc.close();
         } catch (RuntimeException ignored) {
         }
         try {
             if (p != null) p.close();
-        } catch (RuntimeException ignored) {
-        }
-        try {
-            if (f != null) f.dispose();
         } catch (RuntimeException ignored) {
         }
         listener.onClosed(reason);

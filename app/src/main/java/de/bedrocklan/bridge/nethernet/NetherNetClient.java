@@ -131,6 +131,11 @@ public final class NetherNetClient {
         s.players = o.optInt("players", 0);
         s.maxPlayers = o.optInt("maxPlayers", 0);
         s.gameType = o.optInt("gameType", 0);
+        s.editor = o.optBoolean("editor", false);
+        s.hardcore = o.optBoolean("hardcore", false);
+        s.onlineAuth = o.optBoolean("onlineAuth", true);
+        s.selfSignedAuth = o.optBoolean("selfSignedAuth", true);
+        s.nonce = optString(o, "nonce", "");
         return s;
     }
 
@@ -160,26 +165,16 @@ public final class NetherNetClient {
         public int players;
         public int maxPlayers;
         public int gameType;
+        public boolean editor;
+        public boolean hardcore;
+        public boolean onlineAuth;
+        public boolean selfSignedAuth;
+        public String nonce;
 
-        /** RakNet-Pong-MOTD wie Status.RakNet() aus df-mc/go-nethernet (Port immer 19132). */
-        public String rakNetMotd(long serverId) {
-            String mode;
-            switch (gameType) {
-                case 0: mode = "Survival"; break;
-                case 1: mode = "Creative"; break;
-                case 2: mode = "Adventure"; break;
-                default: mode = "Unknown"; break;
-            }
-            return "MCPE;" + clean(name) + ";" + protocol + ";" + clean(version) + ";"
-                    + players + ";" + maxPlayers + ";" + Long.toUnsignedString(serverId) + ";"
-                    + clean(level) + ";" + mode + ";" + gameType + ";19132;19132;0;";
-        }
-
-        private static String clean(String s) {
+        /** Anzeigenamen bereinigen: Semikolons raus, Geyser-Quotes strippen. */
+        public static String plain(String s) {
             if (s == null) return "";
             String v = s.replace(";", " ").trim();
-            // Manche Server (z. B. Geyser) liefern den Namen mit literalen
-            // Anführungszeichen im JSON.
             if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
                 v = v.substring(1, v.length() - 1).trim();
             }

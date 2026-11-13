@@ -2,12 +2,12 @@
 
 **Kostenlos. Werbefrei. Open Source. Kein Xbox-Konto nötig.**
 
-Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste deiner Konsole an (Prinzip wie „phantom“).
-Eine Seite, ein Eingabefeld, ein Knopf.
+Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an —
+auf Konsole und PC. Eine Seite, ein Eingabefeld, ein Knopf.
 
-- **NetherNet (WebRTC)** zum Server — wie der offizielle Client, auch wenn RakNet abgeschaltet wird
-- **RakNet** im LAN zur Konsole (UDP 19132) — vollständige Terminierung, kein 08/15-Relay
-- Automatischer Fallback: Server ohne NetherNet laufen über den klassischen UDP-Relay weiter
+- **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551)
+- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
+- Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
 
 ## Download
 Fertiges APK aus dem neuesten [Release](../../releases) laden und installieren
@@ -20,8 +20,12 @@ Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einste
 „Apps prüfen“ kurz aus, installieren, wieder an.
 
 ## Benutzen
-Handy und Konsole im selben WLAN → Serveradresse eintragen → Starten → in Minecraft
-auf der Konsole in der LAN-Liste auswählen.
+Handy und Konsole/PC im selben WLAN → Serveradresse eintragen → Starten → in Minecraft
+in der LAN-Liste auswählen.
+
+## Voraussetzung am Server
+Der Server muss NetherNet anbieten, also auf `GET /v1/join` antworten
+(aktuelle BDS/Geyser-Versionen tun das von sich aus).
 
 ## Selbst bauen
 Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes Release-APK
@@ -29,6 +33,6 @@ Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes R
 `KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
 
 ## Technik (Kurzfassung)
-RakNet-Server mit vollem Handshake, ACKs, Split-Reassembly und Compression-Handling
-für die Konsole; NetherNet via `/v1/join`-Endpoint und WebRTC-DataChannels mit
-Segment-Framing zum Server. Nintendo Switch wird nicht unterstützt.
+NetherNet-LAN-Discovery mit AES/HMAC nach Spec, WebRTC-Answerer für Geräte im LAN,
+WebRTC-Client zum Server, Nachrichten werden als komplette NetherNet-Frames 1:1
+durchgereicht. Nintendo Switch wird nicht unterstützt.

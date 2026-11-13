@@ -72,9 +72,9 @@ public class MainActivity extends Activity {
 
         TextView help = new TextView(this);
         help.setText("So geht's:\n"
-                + "1. Handy und Konsole im selben WLAN.\n"
+                + "1. Handy und Konsole/PC im selben WLAN.\n"
                 + "2. Serveradresse eingeben, „Starten“ drücken.\n"
-                + "3. Minecraft auf der Konsole öffnen, in der Liste der LAN-Spiele den Server wählen.\n\n"
+                + "3. Minecraft öffnen und in der Liste der LAN-Spiele den Server wählen.\n\n"
                 + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
         root.addView(help);
 
