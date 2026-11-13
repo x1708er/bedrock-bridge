@@ -43,6 +43,10 @@ public final class LoginRewriter {
         this.identity = identity;
     }
 
+    public boolean isDone() {
+        return done;
+    }
+
     /**
      * Verarbeitet eine Nachricht vom Gerät Richtung Server. Liefert null,
      * wenn nichts umgeschrieben wurde (Nachricht unverändert weiterleiten),
@@ -54,13 +58,20 @@ public final class LoginRewriter {
         byte[] entries;
         if (algo == ALGO_DEFLATE) {
             entries = inflate(message, 1);
-            if (entries == null) return null;
+            if (entries == null) {
+                Guard.log("Deko: inflate fehlgeschlagen (" + message.length + " Bytes)");
+                return null;
+            }
         } else if (algo == ALGO_NONE) {
             entries = slice(message, 1);
         } else {
             // Vor den NetworkSettings gibt es kein algo-Byte — nichts umzuschreiben.
+            Guard.log("Deko: rohe Nachricht (" + message.length + " Bytes), Anfang: "
+                    + hex(message, 0, Math.min(12, message.length)));
             return null;
         }
+        Guard.log("Deko: algo=" + algo + ", " + message.length + " Bytes entpackt "
+                + entries.length + " Bytes, Anfang: " + hex(entries, 0, Math.min(16, entries.length)));
         byte[] rewritten = rewriteEntries(entries);
         if (rewritten == null) return null;
         done = true;
@@ -90,6 +101,8 @@ public final class LoginRewriter {
             byte[] entry = slice(entries, pos[0], pos[0] + len);
             off = pos[0] + len;
             byte[] replacement = rewriteEntry(entry);
+            Guard.log("Deko: Eintrag " + entry.length + " Bytes, Anfang: "
+                    + hex(entry, 0, Math.min(8, entry.length)));
             out.add(replacement != null ? replacement : entry);
             if (replacement != null) found = true;
         }
@@ -177,6 +190,15 @@ public final class LoginRewriter {
     }
 
     // ---------------------------------------------------------------- Hilfen
+
+    private static String hex(byte[] b, int from, int to) {
+        StringBuilder out = new StringBuilder();
+        for (int i = from; i < to; i++) {
+            if (out.length() > 0) out.append(' ');
+            out.append(String.format("%02x", b[i] & 0xff));
+        }
+        return out.toString();
+    }
 
     private static byte[] slice(byte[] b, int from) {
         return slice(b, from, b.length);
