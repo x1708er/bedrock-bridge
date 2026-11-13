@@ -258,7 +258,9 @@ public final class LoginRewriter {
     private static byte[] inflate(byte[] data, int from) {
         inflateError = "?";
         try {
-            Inflater inf = new Inflater();
+            // Bedrock „ZLIB“ ist on the wire raw deflate ohne zlib-Header
+            // (Geyser: ZlibCompression(Zlib.RAW)).
+            Inflater inf = new Inflater(true);
             inf.setInput(data, from, data.length - from);
             ByteArrayOutputStream out = new ByteArrayOutputStream(data.length * 4);
             byte[] buf = new byte[8192];
@@ -288,7 +290,7 @@ public final class LoginRewriter {
     }
 
     private static byte[] deflate(byte[] data) {
-        Deflater def = new Deflater();
+        Deflater def = new Deflater(7, true);
         def.setInput(data);
         def.finish();
         ByteArrayOutputStream out = new ByteArrayOutputStream(data.length);
