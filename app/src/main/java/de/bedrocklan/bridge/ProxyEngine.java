@@ -140,7 +140,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
 
     private void handleSignal(long senderId, String data) {
         String[] parts = data.split(" ", 3);
-        if (parts.length != 3) return;
+        if (parts.length != 3) {
+            Guard.log("Signal mit " + parts.length + " Teilen: \"" + abbrev(data) + "\"");
+            return;
+        }
         String type = parts[0];
         long connId;
         try {
@@ -153,7 +156,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                 LanClient existing = clients.get(connId);
                 if (existing == null) {
                     Guard.log("Verbindungswunsch von Gerät " + Long.toUnsignedString(senderId)
-                            + " (Verbindung " + Long.toUnsignedString(connId) + ")");
+                            + " (Verbindung " + Long.toUnsignedString(connId) + ")"
+                            + " Offer " + parts[2].length() + " Bytes: \"" + abbrev(parts[2]) + "\"");
                     LanClient client = new LanClient(factory, this, connId, senderId);
                     clients.put(connId, client);
                     client.handleOffer(parts[2]);
@@ -323,6 +327,11 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         } else {
             State.status = "Läuft. Server via NetherNet erreichbar. Jetzt Minecraft öffnen und in den LAN-Spielen wählen.";
         }
+    }
+
+    private static String abbrev(String s) {
+        String t = s.replace("\r", "\\r").replace("\n", "\\n");
+        return t.length() <= 160 ? t : t.substring(0, 160) + "…";
     }
 
     private void send(InetSocketAddress to, byte[] data) {

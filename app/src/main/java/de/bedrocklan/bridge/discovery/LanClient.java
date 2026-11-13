@@ -84,6 +84,7 @@ public final class LanClient {
     /** CONNECTREQUEST: Offer entgegennehmen und mit Answer antworten. */
     public void handleOffer(String offerSdp) {
         if (closed) return;
+        Guard.log("handleOffer: " + (offerSdp == null ? -1 : offerSdp.length()) + " Bytes");
         PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(
                 new ArrayList<PeerConnection.IceServer>());
         pc = factory.createPeerConnection(config, new PeerConnection.Observer() {

@@ -38,6 +38,7 @@ public final class AccountManager {
     private static final String LIVE_TOKEN = "https://login.live.com/oauth20_token.srf";
     private static final String XBL_USER_AUTH = "https://user.auth.xboxlive.com/user/authenticate";
     private static final String XSTS_AUTH = "https://xsts.auth.xboxlive.com/xsts/authorize";
+    private static final String XSTS_RP_PLAYFAB = "http://playfab.xboxlive.com/";
     private static final String PLAYFAB_LOGIN = "https://20ca2.playfabapi.com/Client/LoginWithXbox";
     private static final String PLAYFAB_TITLE = "20CA2";
     private static final String SERVICE_URI = "https://authorization.franchise.minecraft-services.net";
@@ -210,13 +211,17 @@ public final class AccountManager {
     }
 
     private JSONObject xstsToken(String msaAccess) throws IOException {
+        return xstsToken(msaAccess, "http://xboxlive.com");
+    }
+
+    private JSONObject xstsToken(String msaAccess, String relyingParty) throws IOException {
         try {
             JSONObject xbl = xblToken(msaAccess);
             JSONObject body = new JSONObject()
                     .put("Properties", new JSONObject()
                             .put("SandboxId", "RETAIL")
                             .put("UserTokens", new JSONArray().put(xbl.getString("Token"))))
-                    .put("RelyingParty", "http://xboxlive.com")
+                    .put("RelyingParty", relyingParty)
                     .put("TokenType", "JWT");
             HttpURLConnection c = open(XSTS_AUTH);
             try {
@@ -253,7 +258,7 @@ public final class AccountManager {
     private String playfabTicket() throws IOException {
         if (playfabTicket != null && System.currentTimeMillis() < playfabValidUntil) return playfabTicket;
         try {
-            JSONObject xsts = xstsToken(msaAccessToken());
+            JSONObject xsts = xstsToken(msaAccessToken(), XSTS_RP_PLAYFAB);
             JSONObject xui = xsts.getJSONObject("DisplayClaims").getJSONArray("xui").getJSONObject(0);
             String auth = "XBL3.0 x=" + xui.getString("uhs") + ";" + xsts.getString("Token");
             JSONObject body = new JSONObject()
