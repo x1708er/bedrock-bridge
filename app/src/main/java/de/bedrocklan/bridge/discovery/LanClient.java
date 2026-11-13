@@ -14,7 +14,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import de.bedrocklan.bridge.Guard;
 import de.bedrocklan.bridge.nethernet.Framer;
+import de.bedrocklan.bridge.nethernet.NetherIdentity;
 
 /**
  * Ein Gerät (PC/Konsole) im LAN: nimmt das WebRTC-Offer aus dem
@@ -44,11 +46,10 @@ public final class LanClient {
     private DataChannel unreliable;
     private final Framer reliableFramer = new Framer();
     private final Framer unreliableFramer = new Framer();
+    private final NetherIdentity identity;
 
     private final List<String> pendingCandidates = Collections.synchronizedList(new ArrayList<>());
     private boolean remoteSet;
-    private boolean reliableOpen;
-    private boolean unreliableOpen;
     private volatile boolean open;
     private volatile boolean closed;
     volatile long lastSeen = System.currentTimeMillis();
@@ -58,6 +59,14 @@ public final class LanClient {
         this.host = host;
         this.connectionId = connectionId;
         this.peerNetworkId = peerNetworkId;
+        NetherIdentity id;
+        try {
+            id = NetherIdentity.generate();
+        } catch (Throwable e) {
+            Guard.logError("Identitätsschlüssel fehlgeschlagen", e);
+            id = null;
+        }
+        this.identity = id;
     }
 
     public long connectionId() {
@@ -83,7 +92,11 @@ public final class LanClient {
 
             @Override
             public void onIceConnectionChange(PeerConnection.IceConnectionState s) {
-                if (s == PeerConnection.IceConnectionState.FAILED) close("ICE FAILED", true);
+                try {
+                    if (s == PeerConnection.IceConnectionState.FAILED) close("ICE FAILED", true);
+                } catch (Throwable e) {
+                    Guard.logError("ICE-Callback", e);
+                }
             }
 
             @Override
@@ -94,8 +107,12 @@ public final class LanClient {
 
             @Override
             public void onIceCandidate(IceCandidate candidate) {
-                // Trickle: eigene Kandidaten dem Gerät signalisieren.
-                host.sendSignal(LanClient.this, "CANDIDATEADD", candidate.sdp);
+                try {
+                    // Trickle: eigene Kandidaten dem Gerät signalisieren.
+                    host.sendSignal(LanClient.this, "CANDIDATEADD", candidate.sdp);
+                } catch (Throwable e) {
+                    Guard.logError("Kandidaten-Callback", e);
+                }
             }
 
             @Override
@@ -109,7 +126,11 @@ public final class LanClient {
 
             @Override
             public void onDataChannel(DataChannel dc) {
-                attach(dc);
+                try {
+                    attach(dc);
+                } catch (Throwable e) {
+                    Guard.logError("Kanal-Callback", e);
+                }
             }
 
             @Override
@@ -125,41 +146,61 @@ public final class LanClient {
         pc.setRemoteDescription(new SdpObserver() {
             @Override
             public void onSetSuccess() {
-                remoteSet = true;
-                flushCandidates();
-                pc.createAnswer(new SdpObserver() {
-                    @Override
-                    public void onCreateSuccess(SessionDescription answer) {
-                        pc.setLocalDescription(new SdpObserver() {
-                            @Override
-                            public void onCreateSuccess(SessionDescription d) {}
+                try {
+                    remoteSet = true;
+                    flushCandidates();
+                    pc.createAnswer(new SdpObserver() {
+                        @Override
+                        public void onCreateSuccess(SessionDescription answer) {
+                            pc.setLocalDescription(new SdpObserver() {
+                                @Override
+                                public void onCreateSuccess(SessionDescription d) {}
 
-                            @Override
-                            public void onSetSuccess() {
-                                host.sendSignal(LanClient.this, "CONNECTRESPONSE", answer.description);
-                            }
+                                @Override
+                                public void onSetSuccess() {
+                                    try {
+                                        String sdp = answer.description;
+                                        // Selbstsignierte Server-Identität anhängen
+                                        // (der Vanilla-Client lehnt Answers ohne ab).
+                                        if (identity != null) {
+                                            String attr = identity.serverAttribute(sdp);
+                                            if (attr != null) {
+                                                sdp = NetherIdentity.insertSessionAttribute(
+                                                        sdp, "a=identity:" + attr);
+                                            }
+                                        }
+                                        host.sendSignal(LanClient.this, "CONNECTRESPONSE", sdp);
+                                    } catch (Throwable e) {
+                                        Guard.logError("Answer fehlgeschlagen", e);
+                                        close("Answer fehlgeschlagen", true);
+                                    }
+                                }
 
-                            @Override
-                            public void onCreateFailure(String s) {}
+                                @Override
+                                public void onCreateFailure(String s) {}
 
-                            @Override
-                            public void onSetFailure(String s) {
-                                close("setLocalDescription: " + s, true);
-                            }
-                        }, answer);
-                    }
+                                @Override
+                                public void onSetFailure(String s) {
+                                    close("setLocalDescription: " + s, true);
+                                }
+                            }, answer);
+                        }
 
-                    @Override
-                    public void onSetSuccess() {}
+                        @Override
+                        public void onSetSuccess() {}
 
-                    @Override
-                    public void onCreateFailure(String s) {
-                        close("createAnswer: " + s, true);
-                    }
+                        @Override
+                        public void onCreateFailure(String s) {
+                            close("createAnswer: " + s, true);
+                        }
 
-                    @Override
-                    public void onSetFailure(String s) {}
-                }, new MediaConstraints());
+                        @Override
+                        public void onSetFailure(String s) {}
+                    }, new MediaConstraints());
+                } catch (Throwable e) {
+                    Guard.logError("Offer-Verarbeitung fehlgeschlagen", e);
+                    close("Offer-Verarbeitung fehlgeschlagen", true);
+                }
             }
 
             @Override
@@ -172,7 +213,7 @@ public final class LanClient {
             public void onSetFailure(String s) {
                 close("setRemoteDescription: " + s, true);
             }
-        }, new SessionDescription(SessionDescription.Type.OFFER, offerSdp));
+        }, new SessionDescription(SessionDescription.Type.OFFER, NetherIdentity.stripIdentity(offerSdp)));
     }
 
     /** CANDIDATEADD: ICE-Kandidat des Geräts hinzufügen. */
@@ -202,7 +243,7 @@ public final class LanClient {
     private void attach(DataChannel dc) {
         String label = dc.label();
         if (!"ReliableDataChannel".equals(label) && !"UnreliableDataChannel".equals(label)) {
-            close("unbekannter Kanal " + label, true);
+            Guard.log("ignoriere unbekannten Kanal " + label);
             return;
         }
         boolean isReliable = "ReliableDataChannel".equals(label);
@@ -214,30 +255,37 @@ public final class LanClient {
 
             @Override
             public void onStateChange() {
-                if (dc.state() == DataChannel.State.OPEN) {
-                    if (isReliable) reliableOpen = true;
-                    else unreliableOpen = true;
-                    if (reliableOpen && unreliableOpen && !open) {
+                try {
+                    if (dc.state() == DataChannel.State.OPEN && isReliable && !open) {
+                        // Der Reliable-Kanal trägt das Spiel; er reicht zum Start.
                         open = true;
                         host.onOpen(LanClient.this);
                     }
+                    if (dc.state() == DataChannel.State.CLOSED) close("Kanal geschlossen", true);
+                } catch (Throwable e) {
+                    Guard.logError("Kanalzustand", e);
                 }
-                if (dc.state() == DataChannel.State.CLOSED) close("Kanal geschlossen", true);
             }
 
             @Override
             public void onMessage(DataChannel.Buffer buffer) {
-                byte[] data = new byte[buffer.data.remaining()];
-                buffer.data.get(data);
-                Framer framer = isReliable ? reliableFramer : unreliableFramer;
                 byte[] message;
                 try {
+                    byte[] data = new byte[buffer.data.remaining()];
+                    buffer.data.get(data);
+                    Framer framer = isReliable ? reliableFramer : unreliableFramer;
                     message = framer.feed(data);
-                } catch (RuntimeException e) {
+                } catch (Throwable e) {
+                    Guard.logError("Nachricht defekt", e);
                     close("Nachricht defekt: " + e.getMessage(), true);
                     return;
                 }
-                if (message != null && open) host.onMessage(LanClient.this, message);
+                if (message == null || !open) return;
+                try {
+                    host.onMessage(LanClient.this, message);
+                } catch (Throwable e) {
+                    Guard.logError("Weiterleitung fehlgeschlagen", e);
+                }
             }
         });
     }
@@ -245,7 +293,11 @@ public final class LanClient {
     /** Nachricht an das Gerät senden (nur Reliable, wie vom Spiel empfohlen). */
     public void sendMessage(byte[] message) {
         if (closed || !open) return;
-        Framer.send(reliable, message);
+        try {
+            Framer.send(reliable, message);
+        } catch (Throwable e) {
+            Guard.logError("senden an Gerät", e);
+        }
     }
 
     public void tick(long idleMs) {
@@ -257,14 +309,17 @@ public final class LanClient {
     public void close(String reason, boolean notifyHost) {
         if (closed) return;
         closed = true;
-        PeerConnection p = pc;
+        final PeerConnection p = pc;
         pc = null;
         reliable = null;
         unreliable = null;
-        try {
-            if (p != null) p.close();
-        } catch (RuntimeException ignored) {
+        if (p != null) Guard.closeLater(p::close);
+        if (notifyHost) {
+            try {
+                host.onClosed(this, reason);
+            } catch (Throwable e) {
+                Guard.logError("onClosed", e);
+            }
         }
-        if (notifyHost) host.onClosed(this, reason);
     }
 }

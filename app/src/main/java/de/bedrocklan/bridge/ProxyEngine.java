@@ -75,7 +75,9 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         bridges.clear();
         clients.clear();
         peers.clear();
-        if (factory != null) factory.dispose();
+        final org.webrtc.PeerConnectionFactory f = factory;
+        factory = null;
+        if (f != null) Guard.closeLater(f::dispose);
         State.clients = 0;
     }
 
@@ -99,8 +101,9 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
             } catch (IOException e) {
                 if (!running) return;
                 sleep(100);
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 // ein kaputtes Paket darf die Schleife nie beenden
+                Guard.logError("Discovery-Paket", e);
             }
         }
     }
@@ -110,6 +113,7 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         if (data == null) return;
         byte[] out = Discovery.marshalResponse(networkId, data.encode());
         send(to, out);
+        Guard.log("Discovery-Anfrage beantwortet an " + to);
     }
 
     private void handleSignal(long senderId, String data) {
@@ -126,6 +130,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
             case "CONNECTREQUEST": {
                 LanClient existing = clients.get(connId);
                 if (existing == null) {
+                    Guard.log("Verbindungswunsch von Gerät " + Long.toUnsignedString(senderId)
+                            + " (Verbindung " + Long.toUnsignedString(connId) + ")");
                     LanClient client = new LanClient(factory, this, connId, senderId);
                     clients.put(connId, client);
                     client.handleOffer(parts[2]);
@@ -162,6 +168,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
             } catch (IOException e) {
                 if (!running) return;
                 problem = "Server antwortet nicht. Adresse und Port prüfen.";
+            } catch (Throwable e) {
+                if (!running) return;
+                Guard.logError("Status-Abruf", e);
+                problem = "Serverstatus-Fehler.";
             }
             publishStatus();
             if (!sleep(5000)) return;
@@ -196,7 +206,11 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     private void cleanupLoop() {
         while (running) {
             if (!sleep(5000)) return;
-            for (LanClient c : clients.values()) c.tick(IDLE_MS);
+            try {
+                for (LanClient c : clients.values()) c.tick(IDLE_MS);
+            } catch (Throwable e) {
+                Guard.logError("Aufräumen", e);
+            }
             publishStatus();
         }
     }
@@ -215,20 +229,30 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     @Override
     public void onOpen(LanClient client) {
         if (!running) return;
-        BedrockBridge bridge = new BedrockBridge(factory, client, host, port, this);
-        bridges.put(client.connectionId(), bridge);
-        bridge.start();
+        try {
+            Guard.log("Gerät verbunden, verbinde zum Server …");
+            BedrockBridge bridge = new BedrockBridge(factory, client, host, port, this);
+            bridges.put(client.connectionId(), bridge);
+            bridge.start();
+        } catch (Throwable e) {
+            Guard.logError("Brückenstart", e);
+        }
         publishStatus();
     }
 
     @Override
     public void onMessage(LanClient client, byte[] message) {
-        BedrockBridge bridge = bridges.get(client.connectionId());
-        if (bridge != null) bridge.fromClient(message);
+        try {
+            BedrockBridge bridge = bridges.get(client.connectionId());
+            if (bridge != null) bridge.fromClient(message);
+        } catch (Throwable e) {
+            Guard.logError("Weiterleitung zum Server", e);
+        }
     }
 
     @Override
     public void onClosed(LanClient client, String reason) {
+        Guard.log("Gerät getrennt: " + reason);
         clients.remove(client.connectionId());
         BedrockBridge bridge = bridges.get(client.connectionId());
         if (bridge != null) {
@@ -256,7 +280,16 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         if (p != null) {
             State.status = p;
         } else if (n > 0) {
-            State.status = "Läuft. Gerät ist verbunden und spielt.";
+            boolean playing = false;
+            for (BedrockBridge b : bridges.values()) {
+                if (b.isReady()) {
+                    playing = true;
+                    break;
+                }
+            }
+            State.status = playing
+                    ? "Läuft. Gerät ist verbunden und spielt."
+                    : "Läuft. Gerät verbunden, Verbindung zum Server läuft.";
         } else {
             State.status = "Läuft. Server via NetherNet erreichbar. Jetzt Minecraft öffnen und in den LAN-Spielen wählen.";
         }

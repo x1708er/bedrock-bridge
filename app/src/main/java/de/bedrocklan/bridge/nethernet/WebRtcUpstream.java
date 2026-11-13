@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import de.bedrocklan.bridge.Guard;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -39,6 +41,7 @@ public final class WebRtcUpstream {
 
     private final List<String> candidates = new ArrayList<>();
     private final Framer framer = new Framer();
+    private final NetherIdentity identity;
 
     private volatile boolean closed;
 
@@ -46,6 +49,14 @@ public final class WebRtcUpstream {
         this.factory = factory;
         this.signaling = signaling;
         this.listener = listener;
+        NetherIdentity id;
+        try {
+            id = NetherIdentity.generate();
+        } catch (Throwable e) {
+            Guard.logError("Identitätsschlüssel fehlgeschlagen", e);
+            id = null;
+        }
+        this.identity = id;
     }
 
     /** Baut die WebRTC-Verbindung auf (blockiert bis DataChannel offen oder Fehler). */
@@ -64,8 +75,12 @@ public final class WebRtcUpstream {
 
             @Override
             public void onIceConnectionChange(PeerConnection.IceConnectionState s) {
-                if (s == PeerConnection.IceConnectionState.FAILED) {
-                    closeUpstream("ICE FAILED");
+                try {
+                    if (s == PeerConnection.IceConnectionState.FAILED) {
+                        closeUpstream("ICE FAILED");
+                    }
+                } catch (Throwable e) {
+                    Guard.logError("ICE-Callback", e);
                 }
             }
 
@@ -79,8 +94,12 @@ public final class WebRtcUpstream {
 
             @Override
             public void onIceCandidate(IceCandidate candidate) {
-                synchronized (candidates) {
-                    candidates.add("a=" + candidate.sdp);
+                try {
+                    synchronized (candidates) {
+                        candidates.add("a=" + candidate.sdp);
+                    }
+                } catch (Throwable e) {
+                    Guard.logError("Kandidaten-Callback", e);
                 }
             }
 
@@ -95,8 +114,11 @@ public final class WebRtcUpstream {
 
             @Override
             public void onDataChannel(DataChannel dc) {
-                // Der Server darf beim Client-Kanal keine Kanäle öffnen.
-                closeUpstream("Server öffnete unerwartet Kanal " + dc.label());
+                try {
+                    closeUpstream("Server öffnete unerwartet Kanal " + dc.label());
+                } catch (Throwable e) {
+                    Guard.logError("Kanal-Callback", e);
+                }
             }
 
             @Override
@@ -136,22 +158,32 @@ public final class WebRtcUpstream {
 
             @Override
             public void onStateChange() {
-                if (reliable.state() == DataChannel.State.OPEN) channelOpen.countDown();
-                if (reliable.state() == DataChannel.State.CLOSED) closeUpstream("Kanal geschlossen");
+                try {
+                    if (reliable.state() == DataChannel.State.OPEN) channelOpen.countDown();
+                    if (reliable.state() == DataChannel.State.CLOSED) closeUpstream("Kanal geschlossen");
+                } catch (Throwable e) {
+                    Guard.logError("Kanalzustand", e);
+                }
             }
 
             @Override
             public void onMessage(DataChannel.Buffer buffer) {
-                byte[] data = new byte[buffer.data.remaining()];
-                buffer.data.get(data);
                 byte[] message;
                 try {
+                    byte[] data = new byte[buffer.data.remaining()];
+                    buffer.data.get(data);
                     message = framer.feed(data);
-                } catch (RuntimeException e) {
+                } catch (Throwable e) {
+                    Guard.logError("Nachricht defekt", e);
                     closeUpstream("Nachricht defekt: " + e.getMessage());
                     return;
                 }
-                if (message != null) listener.onMessage(message);
+                if (message == null) return;
+                try {
+                    listener.onMessage(message);
+                } catch (Throwable e) {
+                    Guard.logError("Weiterleitung fehlgeschlagen", e);
+                }
             }
         });
 
@@ -199,7 +231,7 @@ public final class WebRtcUpstream {
         }
 
         // Non-trickle ICE: auf vollständige Kandidatensammlung warten, dann alles ins SDP.
-        if (!gatherComplete.await(10, TimeUnit.SECONDS)) {
+        if (!gatherComplete.await(4, TimeUnit.SECONDS)) {
             listener.onLog("ICE-Sammlung unvollständig, sende trotzdem");
         }
 
@@ -210,9 +242,23 @@ public final class WebRtcUpstream {
                 if (!offerSdp.contains(c.substring(2))) munged.append(c).append('\n');
             }
         }
+        // Selbstsignierte Identität als Sitzungsattribut (der Server lehnt
+        // Angebote ohne Identität mit HTTP 401 ab).
+        if (identity != null) {
+            try {
+                String attr = identity.clientAttribute(offerSdp);
+                if (attr != null) {
+                    munged = new StringBuilder(
+                            NetherIdentity.insertSessionAttribute(munged.toString(), "a=identity:" + attr));
+                }
+            } catch (Throwable e) {
+                Guard.logError("Identitäts-Assertion fehlgeschlagen", e);
+            }
+        }
 
         // Offer an den Server posten (CONNECTREQUEST-Äquivalent), Answer setzen.
         String answerSdp = signaling.exchangeSdp(munged.toString(), 12_000);
+        answerSdp = NetherIdentity.stripIdentity(answerSdp);
         final CountDownLatch remoteSet = new CountDownLatch(1);
         pc.setRemoteDescription(new SdpObserver() {
             @Override
@@ -251,18 +297,20 @@ public final class WebRtcUpstream {
     public void closeUpstream(String reason) {
         if (closed) return;
         closed = true;
-        DataChannel dc = reliable;
-        PeerConnection p = pc;
+        final DataChannel dc = reliable;
+        final PeerConnection p = pc;
         reliable = null;
         pc = null;
-        try {
-            if (dc != null) dc.close();
-        } catch (RuntimeException ignored) {
+        if (dc != null || p != null) {
+            Guard.closeLater(() -> {
+                if (dc != null) dc.close();
+                if (p != null) p.close();
+            });
         }
         try {
-            if (p != null) p.close();
-        } catch (RuntimeException ignored) {
+            listener.onClosed(reason);
+        } catch (Throwable e) {
+            Guard.logError("onClosed", e);
         }
-        listener.onClosed(reason);
     }
 }

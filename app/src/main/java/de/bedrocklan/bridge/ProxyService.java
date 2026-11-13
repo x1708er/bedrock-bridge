@@ -31,6 +31,12 @@ public class ProxyService extends Service {
     private PowerManager.WakeLock wakeLock;
 
     @Override
+    public void onCreate() {
+        super.onCreate();
+        Guard.install(this);
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || intent.getStringExtra(EXTRA_HOST) == null) {
             stopSelf();

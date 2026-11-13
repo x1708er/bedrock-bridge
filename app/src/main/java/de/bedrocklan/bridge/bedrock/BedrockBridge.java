@@ -4,6 +4,7 @@ import android.content.Context;
 
 import org.webrtc.PeerConnectionFactory;
 
+import de.bedrocklan.bridge.Guard;
 import de.bedrocklan.bridge.discovery.LanClient;
 import de.bedrocklan.bridge.nethernet.NetherNetClient;
 import de.bedrocklan.bridge.nethernet.WebRtcUpstream;
@@ -53,17 +54,24 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
                 WebRtcUpstream up = new WebRtcUpstream(factory, signaling, this);
                 upstream = up;
                 up.connect();
+                Guard.log("Upstream zum Server verbunden");
                 synchronized (outbox) {
                     upstreamReady = true;
                     for (byte[] m : outbox) up.sendMessage(m);
                     outbox.clear();
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                Guard.logError("Upstream fehlgeschlagen", e);
                 close("NetherNet-Verbindung zum Server fehlgeschlagen: " + e.getMessage());
             }
         }, "nethernet-upstream");
         t.setDaemon(true);
         t.start();
+    }
+
+    /** Liefert true, sobald der Upstream zum Server offen ist. */
+    public boolean isReady() {
+        return upstreamReady;
     }
 
     /** Nachricht vom Gerät Richtung Server. */
@@ -82,7 +90,11 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
     @Override
     public void onMessage(byte[] message) {
         if (closed) return;
-        client.sendMessage(message);
+        try {
+            client.sendMessage(message);
+        } catch (Throwable e) {
+            Guard.logError("Weiterleitung zum Gerät", e);
+        }
     }
 
     @Override
@@ -92,6 +104,7 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
 
     @Override
     public void onLog(String msg) {
+        Guard.log(msg);
     }
 
     public void close(String reason) {

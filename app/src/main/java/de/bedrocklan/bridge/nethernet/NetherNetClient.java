@@ -70,7 +70,9 @@ public final class NetherNetClient {
             }
             int code = c.getResponseCode();
             if (code < 200 || code > 299) {
-                throw new IOException("Server lehnt ab: HTTP " + code);
+                throw new IOException("Server lehnt ab: HTTP " + code
+                        + (code == 401 ? " (Identität nicht akzeptiert — verlangt ein Xbox-Kunden-Token?)"
+                        : code == 403 ? " (vom Serverbetreiber gesperrt)" : ""));
             }
             String answer = new String(readAll(c.getInputStream(), 512 * 1024), StandardCharsets.UTF_8);
             if (answer.isEmpty()) throw new IOException("leeres SDP-Answer");
