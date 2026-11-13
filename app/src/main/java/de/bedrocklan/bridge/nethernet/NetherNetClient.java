@@ -176,7 +176,14 @@ public final class NetherNetClient {
         }
 
         private static String clean(String s) {
-            return s == null ? "" : s.replace(";", " ");
+            if (s == null) return "";
+            String v = s.replace(";", " ").trim();
+            // Manche Server (z. B. Geyser) liefern den Namen mit literalen
+            // Anführungszeichen im JSON.
+            if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+                v = v.substring(1, v.length() - 1).trim();
+            }
+            return v;
         }
     }
 }
