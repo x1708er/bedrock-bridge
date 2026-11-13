@@ -6,7 +6,8 @@ Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an —
 auf Konsole und PC. Eine Seite, ein Eingabefeld, ein Knopf.
 
 - **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551)
-- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
+- **Direkt verbunden:** Die App reicht nur den Verbindungsaufbau (Offer/Answer/Kandidaten) an den Server durch — der Spielverkehr läuft direkt zwischen Konsole/PC und Server
+- **Jeder Spieler mit eigenem Konto:** Da die Verbindung direkt zum Server steht, akzeptieren Online-Server jeden Spieler mit dessen eigenem Xbox-Login. Die App braucht selbst kein Konto
 - Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
 
 ## Download
@@ -19,17 +20,6 @@ Das ist ein Heuristik-Filter gegen selbstgeladene APKs, keine echte Malware-Erke
 der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem installieren“** wählen.
 Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
 „Apps prüfen“ kurz aus, installieren, wieder an.
-
-## Konto (Online-Server)
-Server mit aktivem Online-Mode akzeptieren nur Verbindungen mit einem echten
-Multiplayer-Token von Mojang. Dafür einmalig oben in der App **„Mit Microsoft-Konto
-anmelden“** tippen und den angezeigten Code auf `microsoft.com/link` eingeben
-(das Konto, mit dem Minecraft spielt). Die App speichert nur den Refresh-Token,
-holt damit automatisch XSTS → PlayFab → MCToken → Multiplayer-Token und bettet
-ihn in die WebRTC-Identität ein. Abmelden jederzeit über denselben Knopf.
-
-Ohne Anmeldung verbindet sich die App mit einer selbstsignierten Identität —
-das funktioniert nur bei Servern ohne Online-Prüfung.
 
 ## Benutzen
 Handy und Konsole/PC im selben WLAN → Serveradresse eintragen → Starten → in Minecraft
@@ -45,6 +35,9 @@ Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes R
 `KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
 
 ## Technik (Kurzfassung)
-NetherNet-LAN-Discovery mit AES/HMAC nach Spec, WebRTC-Answerer für Geräte im LAN,
-WebRTC-Client zum Server, Nachrichten werden als komplette NetherNet-Frames 1:1
-durchgereicht. Nintendo Switch wird nicht unterstützt.
+NetherNet-LAN-Discovery mit AES/HMAC nach Spec (UDP 7551); Verbindungswünsche
+der Geräte (WebRTC-Offers) werden mit deren ICE-Kandidaten an `POST /v1/join`
+des Servers weitergereicht, das Answer kommt über die Discovery-Signale zurück.
+Spielverkehr läuft direkt Gerät↔Server — die App ist kein Teil der Datenverbindung
+und nicht dem Anti-Proxy-Binding (Transport-Identität = Login-Identität) ausgesetzt.
+Nintendo Switch wird nicht unterstützt.

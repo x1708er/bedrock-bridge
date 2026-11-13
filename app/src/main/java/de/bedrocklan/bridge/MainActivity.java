@@ -28,9 +28,6 @@ public class MainActivity extends Activity {
     private Button button;
     private TextView status;
     private String localError;
-    private AccountManager account;
-    private TextView accountStatus;
-    private Button accountButton;
     private TextView updateRow;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
@@ -79,18 +76,6 @@ public class MainActivity extends Activity {
         status.setPadding(0, dp(24), 0, dp(24));
         root.addView(status);
 
-        accountStatus = new TextView(this);
-        accountStatus.setTextSize(16);
-        accountStatus.setPadding(0, dp(8), 0, dp(4));
-        root.addView(accountStatus);
-
-        accountButton = new Button(this);
-        accountButton.setTextSize(16);
-        accountButton.setOnClickListener(v -> onAccountButton());
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
-        root.addView(accountButton, ap);
-
         updateRow = new TextView(this);
         updateRow.setTextSize(15);
         updateRow.setTextColor(Color.rgb(120, 170, 255));
@@ -106,11 +91,9 @@ public class MainActivity extends Activity {
                 + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
         root.addView(help);
 
-        account = new AccountManager(this);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(root);
         setContentView(scroll);
-        updateAccountUi();
         checkForUpdate();
 
         if (Build.VERSION.SDK_INT >= 33
@@ -170,47 +153,6 @@ public class MainActivity extends Activity {
         } else {
             status.setText(State.status);
             status.setTextColor(on ? Color.rgb(120, 220, 120) : Color.LTGRAY);
-        }
-    }
-
-    private void onAccountButton() {
-        if (account.isSignedIn()) {
-            account.signOut();
-            updateAccountUi();
-            return;
-        }
-        accountButton.setEnabled(false);
-        accountButton.setText("Anmeldung läuft …");
-        account.signIn(new AccountManager.SignInCallback() {
-            @Override
-            public void onCode(String userCode, String url) {
-                handler.post(() -> accountStatus.setText(
-                        "Auf einem beliebigen Gerät " + url + " öffnen\nund Code eingeben:\n\n"
-                                + userCode + "\n\n(Microsoft-Konto, mit dem Minecraft spielt)"));
-            }
-
-            @Override
-            public void onDone(String gamertag, String error) {
-                handler.post(() -> {
-                    accountButton.setEnabled(true);
-                    updateAccountUi();
-                    if (gamertag == null) {
-                        accountStatus.setText(error != null ? error : "Anmeldung fehlgeschlagen.");
-                    }
-                });
-            }
-        });
-    }
-
-    private void updateAccountUi() {
-        boolean in = account.isSignedIn();
-        accountButton.setText(in ? "Abmelden" : "Mit Microsoft-Konto anmelden");
-        if (in) {
-            String tag = account.gamertag();
-            accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto"));
-        } else {
-            accountStatus.setText("Nicht angemeldet. Für Online-Server nötig "
-                    + "(Signaling-Identität von Mojang).");
         }
     }
 

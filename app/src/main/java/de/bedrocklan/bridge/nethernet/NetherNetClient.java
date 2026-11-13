@@ -49,9 +49,10 @@ public final class NetherNetClient {
 
     /**
      * SDP-Offer an den Server posten; liefert das SDP-Answer des Servers.
+     * networkId ist die NetherNet-Netzwerk-ID des beitretenden Geräts.
      * {@link #fetchStatus(int)} muss vorher erfolgreich gewesen sein.
      */
-    public String exchangeSdp(String offerSdp, int timeoutMs) throws IOException {
+    public String exchangeSdp(String offerSdp, String networkId, int timeoutMs) throws IOException {
         if (endpointBase == null && fetchStatus(timeoutMs) == null) {
             throw new IOException("Server bietet kein NetherNet an");
         }
@@ -74,8 +75,10 @@ public final class NetherNetClient {
                         + (code == 401 ? " (Identität nicht akzeptiert — verlangt ein Xbox-Kunden-Token?)"
                         : code == 403 ? " (vom Serverbetreiber gesperrt)" : ""));
             }
-            String answer = new String(readAll(c.getInputStream(), 512 * 1024), StandardCharsets.UTF_8);
+            String answer = new String(readAll(c.getInputStream(), 512 * 1024), StandardCharsets.UTF_8).trim();
             if (answer.isEmpty()) throw new IOException("leeres SDP-Answer");
+            // Ein numerischer Body ist ein NetherNet-Fehlercode, kein SDP.
+            if (answer.matches("\\d+")) throw new IOException("Server-Fehlercode " + answer);
             return answer;
         } finally {
             c.disconnect();
