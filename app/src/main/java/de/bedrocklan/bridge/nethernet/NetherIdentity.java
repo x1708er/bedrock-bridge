@@ -153,12 +153,18 @@ public final class NetherIdentity {
         return out;
     }
 
-    /** a=identity-Zeilen aus Remote-SDPs entfernen (libwebrtc kennt sie nicht). */
+    /**
+     * a=identity-Zeilen aus Remote-SDPs entfernen (libwebrtc kennt sie nicht)
+     * und Leerzeilen normalisieren: libwebrtcs Parser lehnt SDPs mit Leerzeilen
+     * mit "Invalid SDP line." ab (parse Bricht ab, desc wird null).
+     */
     public static String stripIdentity(String sdp) {
         StringBuilder out = new StringBuilder(sdp.length());
         for (String line : sdp.split("\n", -1)) {
-            if (line.startsWith("a=identity:")) continue;
-            out.append(line).append('\n');
+            String t = line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
+            if (t.startsWith("a=identity:")) continue;
+            if (t.isEmpty()) continue;
+            out.append(t).append('\n');
         }
         return out.toString();
     }
