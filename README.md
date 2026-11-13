@@ -12,12 +12,24 @@ auf Konsole und PC. Eine Seite, ein Eingabefeld, ein Knopf.
 ## Download
 Fertiges APK aus dem neuesten [Release](../../releases) laden und installieren
 („Unbekannte Quellen“ erlauben). Updates lassen sich ohne Deinstallation drüberinstallieren.
+Die App prüft beim Start selbst auf neue Releases und zeigt einen Download-Link an.
 
 ### Play Protect warnt?
 Das ist ein Heuristik-Filter gegen selbstgeladene APKs, keine echte Malware-Erkennung —
 der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem installieren“** wählen.
 Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
 „Apps prüfen“ kurz aus, installieren, wieder an.
+
+## Konto (Online-Server)
+Server mit aktivem Online-Mode akzeptieren nur Verbindungen mit einem echten
+Multiplayer-Token von Mojang. Dafür einmalig oben in der App **„Mit Microsoft-Konto
+anmelden“** tippen und den angezeigten Code auf `microsoft.com/link` eingeben
+(das Konto, mit dem Minecraft spielt). Die App speichert nur den Refresh-Token,
+holt damit automatisch XSTS → PlayFab → MCToken → Multiplayer-Token und bettet
+ihn in die WebRTC-Identität ein. Abmelden jederzeit über denselben Knopf.
+
+Ohne Anmeldung verbindet sich die App mit einer selbstsignierten Identität —
+das funktioniert nur bei Servern ohne Online-Prüfung.
 
 ## Benutzen
 Handy und Konsole/PC im selben WLAN → Serveradresse eintragen → Starten → in Minecraft

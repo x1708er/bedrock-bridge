@@ -42,6 +42,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     private PeerConnectionFactory factory;
     private NetherNetClient upstreamStatus;
     private volatile Discovery.ServerData serverData;
+    private de.bedrocklan.bridge.nethernet.NetherIdentity identity;
+    private de.bedrocklan.bridge.auth.AccountManager account;
+    private volatile String joinProblem;
+    private volatile long joinProblemAt;
 
     ProxyEngine(Context appContext, String host, int port) {
         this.appContext = appContext;
@@ -56,6 +60,24 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                 .createInitializationOptions());
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
         upstreamStatus = new NetherNetClient(host, port);
+        account = new de.bedrocklan.bridge.auth.AccountManager(appContext);
+        try {
+            identity = de.bedrocklan.bridge.nethernet.NetherIdentity.generate();
+        } catch (Throwable e) {
+            Guard.logError("Identitätsschlüssel fehlgeschlagen", e);
+        }
+        if (account.isSignedIn()) {
+            // Token-Vorbereitung im Hintergrund, damit der erste Join schnell ist.
+            Thread t = new Thread(() -> {
+                try {
+                    if (identity != null) account.multiplayerToken(identity.publicKey());
+                } catch (Exception e) {
+                    Guard.logError("Token-Vorbereitung fehlgeschlagen", e);
+                }
+            }, "token-prewarm");
+            t.setDaemon(true);
+            t.start();
+        }
 
         DatagramSocket s = new DatagramSocket(null);
         s.setReuseAddress(true);
@@ -231,7 +253,7 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         if (!running) return;
         try {
             Guard.log("Gerät verbunden, verbinde zum Server …");
-            BedrockBridge bridge = new BedrockBridge(factory, client, host, port, this);
+            BedrockBridge bridge = new BedrockBridge(factory, client, host, port, identity, account, this);
             bridges.put(client.connectionId(), bridge);
             bridge.start();
         } catch (Throwable e) {
@@ -267,6 +289,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     public void onBridgeClosed(BedrockBridge bridge, String reason) {
         clients.remove(bridge.client().connectionId());
         bridges.remove(bridge.client().connectionId());
+        if (!bridge.isReady() && reason != null && !reason.contains("beendet")) {
+            joinProblem = reason;
+            joinProblemAt = System.currentTimeMillis();
+        }
         publishStatus();
     }
 
@@ -277,6 +303,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         int n = bridges.size();
         State.clients = n;
         String p = problem;
+        if (joinProblem != null && System.currentTimeMillis() - joinProblemAt < 30_000) {
+            State.status = joinProblem;
+            return;
+        }
         if (p != null) {
             State.status = p;
         } else if (n > 0) {

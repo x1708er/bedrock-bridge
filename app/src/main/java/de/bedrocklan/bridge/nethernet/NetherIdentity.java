@@ -31,21 +31,33 @@ public final class NetherIdentity {
         return new NetherIdentity(g.generateKeyPair());
     }
 
-    /** Attributwert (Base64 des JSON) für ein Client-Offer. */
+    /** Öffentlicher Schlüssel der Identität (für den cpk-Claim beim Multiplayer-Token). */
+    public java.security.PublicKey publicKey() {
+        return keyPair.getPublic();
+    }
+
+    /** Attributwert (Base64 des JSON) für ein Client-Offer mit selbstsigniertem Token. */
     public String clientAttribute(String sdp) throws GeneralSecurityException {
-        return sdpAttribute(sdp, AUTH_DOMAIN);
+        return sdpAttribute(sdp, token(System.currentTimeMillis() / 1000), AUTH_DOMAIN);
+    }
+
+    /**
+     * Attributwert für ein Client-Offer mit echtem Multiplayer-Token.
+     * Das Token muss den öffentlichen Schlüssel dieser Identität als
+     * cpk-Claim tragen (AccountManager.multiplayerToken).
+     */
+    public String clientAttribute(String sdp, String multiplayerToken) throws GeneralSecurityException {
+        return sdpAttribute(sdp, multiplayerToken, AUTH_DOMAIN);
     }
 
     /** Attributwert für ein Server-Answer (Domain „self“ wie beim BDS). */
     public String serverAttribute(String sdp) throws GeneralSecurityException {
-        return sdpAttribute(sdp, SELF_DOMAIN);
+        return sdpAttribute(sdp, token(System.currentTimeMillis() / 1000), SELF_DOMAIN);
     }
 
-    private String sdpAttribute(String sdp, String domain) throws GeneralSecurityException {
+    private String sdpAttribute(String sdp, String jwt, String domain) throws GeneralSecurityException {
         List<String[]> fingerprints = parseFingerprints(sdp);
         if (fingerprints.isEmpty()) return null;
-        long now = System.currentTimeMillis() / 1000;
-        String jwt = token(now);
         String detached = fingerprintAssertion(fingerprints);
         String assertion = "{\"fingerprints\":\"" + detached + "\",\"token\":\"" + jwt + "\"}";
         String full = "{\"assertion\":" + quote(assertion)

@@ -15,14 +15,23 @@ import android.text.InputType;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.net.Uri;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import de.bedrocklan.bridge.auth.AccountManager;
+
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private EditText input;
     private Button button;
     private TextView status;
     private String localError;
+    private AccountManager account;
+    private TextView accountStatus;
+    private Button accountButton;
+    private TextView updateRow;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override
@@ -70,6 +79,25 @@ public class MainActivity extends Activity {
         status.setPadding(0, dp(24), 0, dp(24));
         root.addView(status);
 
+        accountStatus = new TextView(this);
+        accountStatus.setTextSize(16);
+        accountStatus.setPadding(0, dp(8), 0, dp(4));
+        root.addView(accountStatus);
+
+        accountButton = new Button(this);
+        accountButton.setTextSize(16);
+        accountButton.setOnClickListener(v -> onAccountButton());
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
+        root.addView(accountButton, ap);
+
+        updateRow = new TextView(this);
+        updateRow.setTextSize(15);
+        updateRow.setTextColor(Color.rgb(120, 170, 255));
+        updateRow.setPadding(0, dp(20), 0, 0);
+        updateRow.setVisibility(android.view.View.GONE);
+        root.addView(updateRow);
+
         TextView help = new TextView(this);
         help.setText("So geht's:\n"
                 + "1. Handy und Konsole/PC im selben WLAN.\n"
@@ -78,7 +106,12 @@ public class MainActivity extends Activity {
                 + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
         root.addView(help);
 
-        setContentView(root);
+        account = new AccountManager(this);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(root);
+        setContentView(scroll);
+        updateAccountUi();
+        checkForUpdate();
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -138,6 +171,105 @@ public class MainActivity extends Activity {
             status.setText(State.status);
             status.setTextColor(on ? Color.rgb(120, 220, 120) : Color.LTGRAY);
         }
+    }
+
+    private void onAccountButton() {
+        if (account.isSignedIn()) {
+            account.signOut();
+            updateAccountUi();
+            return;
+        }
+        accountButton.setEnabled(false);
+        accountButton.setText("Anmeldung läuft …");
+        account.signIn(new AccountManager.SignInCallback() {
+            @Override
+            public void onCode(String userCode, String url) {
+                handler.post(() -> accountStatus.setText(
+                        "Auf einem beliebigen Gerät " + url + " öffnen\nund Code eingeben:\n\n"
+                                + userCode + "\n\n(Microsoft-Konto, mit dem Minecraft spielt)"));
+            }
+
+            @Override
+            public void onDone(String gamertag, String error) {
+                handler.post(() -> {
+                    accountButton.setEnabled(true);
+                    updateAccountUi();
+                    if (gamertag == null) {
+                        accountStatus.setText(error != null ? error : "Anmeldung fehlgeschlagen.");
+                    }
+                });
+            }
+        });
+    }
+
+    private void updateAccountUi() {
+        boolean in = account.isSignedIn();
+        accountButton.setText(in ? "Abmelden" : "Mit Microsoft-Konto anmelden");
+        if (in) {
+            String tag = account.gamertag();
+            accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto"));
+        } else {
+            accountStatus.setText("Nicht angemeldet. Für Online-Server nötig "
+                    + "(Signaling-Identität von Mojang).");
+        }
+    }
+
+    /** Prüft die neueste GitHub-Release gegen die installierte Version. */
+    private void checkForUpdate() {
+        Thread t = new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                        "https://api.github.com/repos/x1708er/bedrock-bridge/releases/latest")
+                        .openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                c.setRequestProperty("User-Agent", "BedrockLanBruecke-UpdateCheck");
+                try (java.io.InputStream in = c.getInputStream()) {
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    JSONObject release = new JSONObject(out.toString("UTF-8"));
+                    String tag = release.optString("tag_name", "").replaceFirst("^v", "");
+                    String url = release.optString("html_url", "");
+                    String current = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                    if (!tag.isEmpty() && !url.isEmpty() && isNewer(tag, current)) {
+                        handler.post(() -> {
+                            updateRow.setText("Update verfügbar: v" + tag + " – tippen zum Herunterladen");
+                            updateRow.setVisibility(android.view.View.VISIBLE);
+                            updateRow.setOnClickListener(v ->
+                                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))));
+                        });
+                    }
+                }
+            } catch (Exception ignored) {
+                // kein Internet oder GitHub nicht erreichbar: still bleiben
+            }
+        }, "update-check");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private static boolean isNewer(String candidate, String current) {
+        int[] a = versionParts(candidate);
+        int[] b = versionParts(current);
+        for (int i = 0; i < 3; i++) {
+            if (a[i] != b[i]) return a[i] > b[i];
+        }
+        return false;
+    }
+
+    private static int[] versionParts(String v) {
+        int[] out = new int[3];
+        String[] parts = v.replaceFirst("^v", "").split("\.");
+        for (int i = 0; i < 3; i++) {
+            try {
+                out[i] = Integer.parseInt(parts[i]);
+            } catch (Exception e) {
+                out[i] = 0;
+            }
+        }
+        return out;
     }
 
     /** Akzeptiert "host", "host:port", "host port", auch mit "minecraft://" davor. */

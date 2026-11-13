@@ -42,21 +42,18 @@ public final class WebRtcUpstream {
     private final List<String> candidates = new ArrayList<>();
     private final Framer framer = new Framer();
     private final NetherIdentity identity;
+    private final de.bedrocklan.bridge.auth.AccountManager account;
 
     private volatile boolean closed;
 
-    public WebRtcUpstream(PeerConnectionFactory factory, NetherNetClient signaling, Listener listener) {
+    public WebRtcUpstream(PeerConnectionFactory factory, NetherNetClient signaling,
+                          NetherIdentity identity, de.bedrocklan.bridge.auth.AccountManager account,
+                          Listener listener) {
         this.factory = factory;
         this.signaling = signaling;
         this.listener = listener;
-        NetherIdentity id;
-        try {
-            id = NetherIdentity.generate();
-        } catch (Throwable e) {
-            Guard.logError("Identitätsschlüssel fehlgeschlagen", e);
-            id = null;
-        }
-        this.identity = id;
+        this.identity = identity;
+        this.account = account;
     }
 
     /** Baut die WebRTC-Verbindung auf (blockiert bis DataChannel offen oder Fehler). */
@@ -242,11 +239,22 @@ public final class WebRtcUpstream {
                 if (!offerSdp.contains(c.substring(2))) munged.append(c).append('\n');
             }
         }
-        // Selbstsignierte Identität als Sitzungsattribut (der Server lehnt
-        // Angebote ohne Identität mit HTTP 401 ab).
+        // Identität als Sitzungsattribut (der Server lehnt Angebote ohne
+        // Identität mit HTTP 401 ab). Mit Anmeldung wird ein echter
+        // Multiplayer-Token verwendet, sonst ein selbstsignierter.
         if (identity != null) {
             try {
-                String attr = identity.clientAttribute(offerSdp);
+                String token = null;
+                if (account != null && account.isSignedIn()) {
+                    try {
+                        token = account.multiplayerToken(identity.publicKey());
+                    } catch (Exception e) {
+                        Guard.logError("Multiplayer-Token fehlgeschlagen", e);
+                    }
+                }
+                String attr = token != null
+                        ? identity.clientAttribute(offerSdp, token)
+                        : identity.clientAttribute(offerSdp);
                 if (attr != null) {
                     munged = new StringBuilder(
                             NetherIdentity.insertSessionAttribute(munged.toString(), "a=identity:" + attr));

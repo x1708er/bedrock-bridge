@@ -29,6 +29,8 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
     private final LanClient client;
     private final NetherNetClient signaling;
     private final Listener listener;
+    private final de.bedrocklan.bridge.nethernet.NetherIdentity identity;
+    private final de.bedrocklan.bridge.auth.AccountManager account;
 
     private WebRtcUpstream upstream;
     private final List<byte[]> outbox = new ArrayList<>();
@@ -36,11 +38,16 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
     private volatile boolean closed;
 
     public BedrockBridge(PeerConnectionFactory factory, LanClient client,
-                         String host, int port, Listener listener) {
+                         String host, int port,
+                         de.bedrocklan.bridge.nethernet.NetherIdentity identity,
+                         de.bedrocklan.bridge.auth.AccountManager account,
+                         Listener listener) {
         this.factory = factory;
         this.client = client;
         this.signaling = new NetherNetClient(host, port);
         this.listener = listener;
+        this.identity = identity;
+        this.account = account;
     }
 
     public LanClient client() {
@@ -51,7 +58,7 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
     public void start() {
         Thread t = new Thread(() -> {
             try {
-                WebRtcUpstream up = new WebRtcUpstream(factory, signaling, this);
+                WebRtcUpstream up = new WebRtcUpstream(factory, signaling, identity, account, this);
                 upstream = up;
                 up.connect();
                 Guard.log("Upstream zum Server verbunden");
