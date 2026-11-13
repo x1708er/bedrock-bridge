@@ -3,6 +3,8 @@ package de.bedrocklan.bridge.auth;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -11,6 +13,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.time.Instant;
@@ -104,9 +107,9 @@ public final class AccountManager {
     }
 
     private void deviceLogin(SignInCallback cb) throws Exception {
-        JSONObject code = json(httpForm(LIVE_CONNECT,
+        JSONObject code = parse(httpForm(LIVE_CONNECT,
                 "client_id=" + CLIENT_ID
-                        + "&scope=" + url(SCOPE)
+                        + "&scope=" + enc(SCOPE)
                         + "&response_type=device_code"));
         String deviceCode = code.getString("device_code");
         String userCode = code.getString("user_code");
@@ -121,14 +124,14 @@ public final class AccountManager {
             HttpURLConnection c = open(LIVE_TOKEN);
             try {
                 String body = "client_id=" + CLIENT_ID
-                        + "&grant_type=" + url("urn:ietf:params:oauth:grant-type:device_code")
-                        + "&device_code=" + url(deviceCode)
-                        + "&scope=" + url(SCOPE);
+                        + "&grant_type=" + enc("urn:ietf:params:oauth:grant-type:device_code")
+                        + "&device_code=" + enc(deviceCode)
+                        + "&scope=" + enc(SCOPE);
                 write(c, body.getBytes(StandardCharsets.UTF_8));
                 int status = c.getResponseCode();
                 String resp = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream(), 64 * 1024);
                 if (status == 200) {
-                    JSONObject token = new JSONObject(resp);
+                    JSONObject token = parse(resp);
                     String refresh = token.optString("refresh_token", "");
                     if (refresh.isEmpty()) throw new IOException("kein Refresh-Token erhalten");
                     prefs.edit().putString("msa_refresh_token", refresh).apply();
@@ -139,7 +142,7 @@ public final class AccountManager {
                     cb.onDone(gamertag() != null ? gamertag() : "Konto", null);
                     return;
                 }
-                JSONObject err = new JSONObject(resp);
+                JSONObject err = parse(resp);
                 String error = err.optString("error", "");
                 if ("authorization_pending".equals(error) || "slow_down".equals(error)) continue;
                 if ("expired_token".equals(error)) {
@@ -176,51 +179,62 @@ public final class AccountManager {
         String resp = httpForm(LIVE_TOKEN,
                 "client_id=" + CLIENT_ID
                         + "&grant_type=refresh_token"
-                        + "&refresh_token=" + url(refresh)
-                        + "&scope=" + url(SCOPE));
-        JSONObject token = new JSONObject(resp);
-        String access = token.getString("access_token");
-        String newRefresh = token.optString("refresh_token", "");
-        if (!newRefresh.isEmpty()) {
-            prefs.edit().putString("msa_refresh_token", newRefresh).apply();
+                        + "&refresh_token=" + enc(refresh)
+                        + "&scope=" + enc(SCOPE));
+        try {
+            JSONObject token = parse(resp);
+            String access = token.getString("access_token");
+            String newRefresh = token.optString("refresh_token", "");
+            if (!newRefresh.isEmpty()) {
+                prefs.edit().putString("msa_refresh_token", newRefresh).apply();
+            }
+            return access;
+        } catch (JSONException e) {
+            throw new IOException("Live-Antwort defekt", e);
         }
-        return access;
     }
 
     private JSONObject xblToken(String msaAccess) throws IOException {
-        JSONObject body = new JSONObject()
-                .put("Properties", new JSONObject()
-                        .put("AuthMethod", "RPS")
-                        .put("SiteName", "user.auth.xboxlive.com")
-                        .put("RpsTicket", "t=" + msaAccess))
-                .put("RelyingParty", "http://auth.xboxlive.com")
-                .put("TokenType", "JWT");
-        return new JSONObject(httpJson(XBL_USER_AUTH, body, null));
+        try {
+            JSONObject body = new JSONObject()
+                    .put("Properties", new JSONObject()
+                            .put("AuthMethod", "RPS")
+                            .put("SiteName", "user.auth.xboxlive.com")
+                            .put("RpsTicket", "t=" + msaAccess))
+                    .put("RelyingParty", "http://auth.xboxlive.com")
+                    .put("TokenType", "JWT");
+            return parse(httpJson(XBL_USER_AUTH, body, null));
+        } catch (JSONException e) {
+            throw new IOException("Xbox-Antwort defekt", e);
+        }
     }
 
     private JSONObject xstsToken(String msaAccess) throws IOException {
-        JSONObject xbl = xblToken(msaAccess);
-        JSONObject body = new JSONObject()
-                .put("Properties", new JSONObject()
-                        .put("SandboxId", "RETAIL")
-                        .put("UserTokens", new org.json.JSONArray()
-                                .put(xbl.getString("Token"))))
-                .put("RelyingParty", "http://xboxlive.com")
-                .put("TokenType", "JWT");
-        HttpURLConnection c = open(XSTS_AUTH);
         try {
-            writeJson(c, body, null);
-            int status = c.getResponseCode();
-            String resp = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream(), 64 * 1024);
-            if (status != 200) {
-                JSONObject err = new JSONObject(resp);
-                long xerr = err.optLong("XErr", 0);
-                throw new IOException(xerr == 0 ? "XSTS-Fehler " + status
-                        : xboxError(xerr));
+            JSONObject xbl = xblToken(msaAccess);
+            JSONObject body = new JSONObject()
+                    .put("Properties", new JSONObject()
+                            .put("SandboxId", "RETAIL")
+                            .put("UserTokens", new JSONArray().put(xbl.getString("Token"))))
+                    .put("RelyingParty", "http://xboxlive.com")
+                    .put("TokenType", "JWT");
+            HttpURLConnection c = open(XSTS_AUTH);
+            try {
+                writeJson(c, body, null);
+                int status = c.getResponseCode();
+                String resp = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream(), 64 * 1024);
+                if (status != 200) {
+                    JSONObject err = parse(resp);
+                    long xerr = err.optLong("XErr", 0);
+                    throw new IOException(xerr == 0 ? "XSTS-Fehler " + status
+                            : xboxError(xerr));
+                }
+                return parse(resp);
+            } finally {
+                c.disconnect();
             }
-            return new JSONObject(resp);
-        } finally {
-            c.disconnect();
+        } catch (JSONException e) {
+            throw new IOException("XSTS-Antwort defekt", e);
         }
     }
 
@@ -238,57 +252,65 @@ public final class AccountManager {
 
     private String playfabTicket() throws IOException {
         if (playfabTicket != null && System.currentTimeMillis() < playfabValidUntil) return playfabTicket;
-        JSONObject xsts = xstsToken(msaAccessToken());
-        JSONObject xui = xsts.getJSONObject("DisplayClaims").getJSONArray("xui").getJSONObject(0);
-        String auth = "XBL3.0 x=" + xui.getString("uhs") + ";" + xsts.getString("Token");
-        JSONObject body = new JSONObject()
-                .put("TitleId", PLAYFAB_TITLE)
-                .put("CreateAccount", true)
-                .put("XboxToken", auth);
-        HttpURLConnection c = open(PLAYFAB_LOGIN);
         try {
-            writeJson(c, body, null);
-            int status = c.getResponseCode();
-            String resp = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream(), 64 * 1024);
-            JSONObject o = new JSONObject(resp);
-            if (status != 200 || !o.optString("status", "").equals("OK")) {
-                throw new IOException("PlayFab: " + o.optString("errorMessage", "HTTP " + status));
+            JSONObject xsts = xstsToken(msaAccessToken());
+            JSONObject xui = xsts.getJSONObject("DisplayClaims").getJSONArray("xui").getJSONObject(0);
+            String auth = "XBL3.0 x=" + xui.getString("uhs") + ";" + xsts.getString("Token");
+            JSONObject body = new JSONObject()
+                    .put("TitleId", PLAYFAB_TITLE)
+                    .put("CreateAccount", true)
+                    .put("XboxToken", auth);
+            HttpURLConnection c = open(PLAYFAB_LOGIN);
+            try {
+                writeJson(c, body, null);
+                int status = c.getResponseCode();
+                String resp = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream(), 64 * 1024);
+                JSONObject o = parse(resp);
+                if (status != 200 || !o.optString("status", "").equals("OK")) {
+                    throw new IOException("PlayFab: " + o.optString("errorMessage", "HTTP " + status));
+                }
+                playfabTicket = o.getJSONObject("data").getString("SessionTicket");
+                playfabValidUntil = System.currentTimeMillis() + 23L * 3600 * 1000;
+                return playfabTicket;
+            } finally {
+                c.disconnect();
             }
-            playfabTicket = o.getJSONObject("data").getString("SessionTicket");
-            playfabValidUntil = System.currentTimeMillis() + 23L * 3600 * 1000;
-            return playfabTicket;
-        } finally {
-            c.disconnect();
+        } catch (JSONException e) {
+            throw new IOException("PlayFab-Antwort defekt", e);
         }
     }
 
     private String mcTokenHeader() throws IOException {
         if (mcTokenHeader != null && System.currentTimeMillis() < mcTokenValidUntil) return mcTokenHeader;
-        JSONObject body = new JSONObject()
-                .put("device", new JSONObject()
-                        .put("applicationType", "MinecraftPE")
-                        .put("capabilities", JSONObject.NULL)
-                        .put("gameVersion", "1.26.50")
-                        .put("id", deviceId())
-                        .put("isPreview", false)
-                        .put("memory", "17179869184")
-                        .put("platform", "Windows10")
-                        .put("playFabTitleId", PLAYFAB_TITLE)
-                        .put("storePlatform", "uwp.store")
-                        .put("treatmentOverrides", JSONObject.NULL)
-                        .put("type", "Windows10"))
-                .put("user", new JSONObject()
-                        .put("language", "de")
-                        .put("languageCode", "de-DE")
-                        .put("regionCode", "DE")
-                        .put("token", playfabTicket())
-                        .put("tokenType", "PlayFab"));
-        String resp = httpJson(SERVICE_URI + "/api/v1.0/session/start", body, null);
-        JSONObject result = new JSONObject(resp).getJSONObject("result");
-        mcTokenHeader = result.getString("authorizationHeader");
-        mcTokenValidUntil = parseTime(result.optString("validUntil", ""),
-                System.currentTimeMillis() + 3600 * 1000L) - 60_000;
-        return mcTokenHeader;
+        try {
+            JSONObject body = new JSONObject()
+                    .put("device", new JSONObject()
+                            .put("applicationType", "MinecraftPE")
+                            .put("capabilities", JSONObject.NULL)
+                            .put("gameVersion", "1.26.50")
+                            .put("id", deviceId())
+                            .put("isPreview", false)
+                            .put("memory", "17179869184")
+                            .put("platform", "Windows10")
+                            .put("playFabTitleId", PLAYFAB_TITLE)
+                            .put("storePlatform", "uwp.store")
+                            .put("treatmentOverrides", JSONObject.NULL)
+                            .put("type", "Windows10"))
+                    .put("user", new JSONObject()
+                            .put("language", "de")
+                            .put("languageCode", "de-DE")
+                            .put("regionCode", "DE")
+                            .put("token", playfabTicket())
+                            .put("tokenType", "PlayFab"));
+            String resp = httpJson(SERVICE_URI + "/api/v1.0/session/start", body, null);
+            JSONObject result = parse(resp).getJSONObject("result");
+            mcTokenHeader = result.getString("authorizationHeader");
+            mcTokenValidUntil = parseTime(result.optString("validUntil", ""),
+                    System.currentTimeMillis() + 3600 * 1000L) - 60_000;
+            return mcTokenHeader;
+        } catch (JSONException e) {
+            throw new IOException("MCToken-Antwort defekt", e);
+        }
     }
 
     /**
@@ -302,16 +324,20 @@ public final class AccountManager {
                 && System.currentTimeMillis() < signedTokenValidUntil) {
             return signedToken;
         }
-        String auth = mcTokenHeader();
-        JSONObject body = new JSONObject().put("publicKey", encoded);
-        String resp = httpJson(SERVICE_URI + "/api/v1.0/multiplayer/session/start", body, auth);
-        JSONObject result = new JSONObject(resp).getJSONObject("result");
-        signedToken = result.getString("signedToken");
-        signedTokenKey = encoded;
-        signedTokenValidUntil = parseTime(result.optString("validUntil", ""),
-                System.currentTimeMillis() + 55 * 60 * 1000L) - 60_000;
-        Guard.log("Multiplayer-Token ausgestellt");
-        return signedToken;
+        try {
+            String auth = mcTokenHeader();
+            JSONObject body = new JSONObject().put("publicKey", encoded);
+            String resp = httpJson(SERVICE_URI + "/api/v1.0/multiplayer/session/start", body, auth);
+            JSONObject result = parse(resp).getJSONObject("result");
+            signedToken = result.getString("signedToken");
+            signedTokenKey = encoded;
+            signedTokenValidUntil = parseTime(result.optString("validUntil", ""),
+                    System.currentTimeMillis() + 55 * 60 * 1000L) - 60_000;
+            Guard.log("Multiplayer-Token ausgestellt");
+            return signedToken;
+        } catch (JSONException e) {
+            throw new IOException("Multiplayer-Token-Antwort defekt", e);
+        }
     }
 
     private String deviceId() {
@@ -321,6 +347,14 @@ public final class AccountManager {
             prefs.edit().putString("device_id", id).apply();
         }
         return id;
+    }
+
+    private static JSONObject parse(String body) throws IOException {
+        try {
+            return new JSONObject(body);
+        } catch (JSONException e) {
+            throw new IOException("Antwort ist kein JSON", e);
+        }
     }
 
     private static long parseTime(String iso, long fallback) {
@@ -337,16 +371,8 @@ public final class AccountManager {
 
     // ------------------------------------------------------------------ HTTP-Hilfen
 
-    private static org.json.JSONObject json(String body) throws IOException {
-        try {
-            return new org.json.JSONObject(body);
-        } catch (org.json.JSONException e) {
-            throw new IOException("Antwort ist kein JSON", e);
-        }
-    }
-
-    private static String url(String s) {
-        return java.net.URLEncoder.encode(s, StandardCharsets.UTF_8);
+    private static String enc(String s) {
+        return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
     private static HttpURLConnection open(String url) throws IOException {
