@@ -66,6 +66,7 @@ public final class WebRtcUpstream {
                 .createInitializationOptions());
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
 
+        final CountDownLatch gatherComplete = new CountDownLatch(1);
         PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(
                 Collections.singletonList(
                         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302")
@@ -88,7 +89,9 @@ public final class WebRtcUpstream {
             public void onIceConnectionReceivingChange(boolean b) {}
 
             @Override
-            public void onIceGatheringChange(PeerConnection.IceGatheringState s) {}
+            public void onIceGatheringChange(PeerConnection.IceGatheringState s) {
+                if (s == PeerConnection.IceGatheringState.COMPLETE) gatherComplete.countDown();
+            }
 
             @Override
             public void onIceCandidate(IceCandidate candidate) {
@@ -209,10 +212,8 @@ public final class WebRtcUpstream {
         }
 
         // Non-trickle ICE: auf vollständige Kandidatensammlung warten, dann alles ins SDP.
-        long deadline = System.currentTimeMillis() + 10_000;
-        while (!pc.getIceGatheringState().equals(PeerConnection.IceGatheringState.COMPLETE)) {
-            if (System.currentTimeMillis() > deadline) break;
-            Thread.sleep(50);
+        if (!gatherComplete.await(10, TimeUnit.SECONDS)) {
+            listener.onLog("ICE-Sammlung unvollständig, sende trotzdem");
         }
 
         String offerSdp = pc.getLocalDescription().description;
