@@ -19,7 +19,6 @@ import android.net.Uri;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import de.bedrocklan.bridge.auth.AccountManager;
 
 import org.json.JSONObject;
 
