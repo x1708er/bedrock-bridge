@@ -25,7 +25,25 @@ bei strictem NAT kann ein TURN-Server nötig sein (aktuell nur STUN konfiguriert
 1. Neues GitHub-Repository anlegen, den Inhalt dieses Ordners hochladen (inkl. `.github`).
 2. Reiter **Actions** → „APK bauen“ läuft automatisch (oder „Run workflow“).
 3. Fertigen Lauf öffnen → unten unter **Artifacts** `BedrockLanBruecke-APK` laden, entpacken.
-4. `app-debug.apk` aufs Handy kopieren und installieren („Unbekannte Quellen“ erlauben).
+4. `app-release.apk` aufs Handy kopieren und installieren („Unbekannte Quellen“ erlauben).
+
+Das Release-APK ist mit einem festen Schlüssel signiert (in GitHub-Secrets hinterlegt),
+sodass Updates ohne Deinstallation installierbar bleiben.
+
+### „App wurde als schädlich eingestuft“ (Google Play Protect)
+
+Play Protect blockiert manche selbstgeladene APKs mit einer Warnung – das ist ein
+Heuristik-Filter, keine echte Malware-Erkennung (der Quellcode liegt offen in diesem Repo).
+So kommst du trotzdem an die Installation:
+
+- In der Play-Protect-Meldung **„Details“** antippen und **„Trotzdem installieren“** wählen
+  (teilweise erscheint die Schaltfläche erst nach dem Aufklappen der Details).
+- Falls die Schaltfläche fehlt: **Play Store → Profil → Play Protect → Zahnrad →
+  „Apps prüfen“** (bzw. „Apps scannen“) vorübergehend deaktivieren, App installieren,
+  danach wieder aktivieren.
+- Bei Samsung zusätzlich: **Galaxy Store → Play Protect** kann dieselbe Sperre zeigen
+  (gleicher Weg). Bei Xiaomi/Huawei heißt die Option „Sicherheit prüfen“ in den
+  Sicherheits-App-Einstellungen.
 
 Alternativ: Ordner in Android Studio öffnen und „Build APK“.
 
