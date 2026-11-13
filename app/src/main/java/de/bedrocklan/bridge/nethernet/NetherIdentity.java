@@ -86,8 +86,11 @@ public final class NetherIdentity {
                     .append("\",\"digest\":\"").append(fingerprints.get(i)[1]).append("\"}");
         }
         payload.append("]}");
+        // JWS: Signiert wird base64url(header) + "." + base64url(payload) —
+        // auch bei Detached-JWS, obwohl die Payload nicht übertragen wird.
         String h = b64url("{\"alg\":\"ES384\"}");
-        String s = sign(payload.toString().getBytes(StandardCharsets.UTF_8));
+        String p = b64url(payload.toString());
+        String s = sign((h + "." + p).getBytes(StandardCharsets.UTF_8));
         return h + ".." + s;
     }
 
