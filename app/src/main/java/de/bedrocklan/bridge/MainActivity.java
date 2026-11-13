@@ -261,7 +261,7 @@ public class MainActivity extends Activity {
 
     private static int[] versionParts(String v) {
         int[] out = new int[3];
-        String[] parts = v.replaceFirst("^v", "").split("\.");
+        String[] parts = v.replaceFirst("^v", "").split("\\.");
         for (int i = 0; i < 3; i++) {
             try {
                 out[i] = Integer.parseInt(parts[i]);
