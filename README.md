@@ -1,59 +1,34 @@
 # Bedrock LAN-Brücke
 
+**Kostenlos. Werbefrei. Open Source. Kein Xbox-Konto nötig.**
+
 Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste deiner Konsole an (Prinzip wie „phantom“).
-Eine Seite, ein Eingabefeld, ein Knopf. Keine Werbung, keine Abhängigkeiten außer WebRTC.
+Eine Seite, ein Eingabefeld, ein Knopf.
 
-## NetherNet-Unterstützung (Beta)
+- **NetherNet (WebRTC)** zum Server — wie der offizielle Client, auch wenn RakNet abgeschaltet wird
+- **RakNet** im LAN zur Konsole (UDP 19132) — vollständige Terminierung, kein 08/15-Relay
+- Automatischer Fallback: Server ohne NetherNet laufen über den klassischen UDP-Relay weiter
 
-Da Mojang RakNet für öffentliche Server ablöst, verbindet die App sich wie der offizielle
-Client per **NetherNet (WebRTC)** mit dem Server: `GET/POST /v1/join` am Server, dann ein
-verschlüsselter DataChannel. Die Konsole bleibt im LAN bei RakNet und hängt an dem
-selbstgebauten RakNet-Server der App (Port 19132), der die Verbindung vollständig
-terminiert (Handshake, Frames, ACKs, Splits, Kompression).
+## Download
+Fertiges APK aus dem neuesten [Release](../../releases) laden und installieren
+(„Unbekannte Quellen“ erlauben). Updates lassen sich ohne Deinstallation drüberinstallieren.
 
-- Server mit NetherNet-Endpunkt (z. B. aktuelle BDS) → direkter WebRTC-Upstream,
-  MOTD aus `GET /v1/join`.
-- Server ohne NetherNet → automatischer Fallback auf den klassischen
-  RakNet-UDP-Relay (wie vorher).
-- Ohne Xbox-Konto: das `/v1/join`-Verfahren des Clients für „ externe Server“ braucht
-  kein Signaling bei Mojang.
-
-Erforderlich für NetherNet: Server und App müssen WebRTC-Verbindungen zulassen;
-bei strictem NAT kann ein TURN-Server nötig sein (aktuell nur STUN konfiguriert).
-
-## APK bauen (ohne Android Studio)
-1. Neues GitHub-Repository anlegen, den Inhalt dieses Ordners hochladen (inkl. `.github`).
-2. Reiter **Actions** → „APK bauen“ läuft automatisch (oder „Run workflow“).
-3. Fertigen Lauf öffnen → unten unter **Artifacts** `BedrockLanBruecke-APK` laden, entpacken.
-4. `app-release.apk` aufs Handy kopieren und installieren („Unbekannte Quellen“ erlauben).
-
-Das Release-APK ist mit einem festen Schlüssel signiert (in GitHub-Secrets hinterlegt),
-sodass Updates ohne Deinstallation installierbar bleiben.
-
-### „App wurde als schädlich eingestuft“ (Google Play Protect)
-
-Play Protect blockiert manche selbstgeladene APKs mit einer Warnung – das ist ein
-Heuristik-Filter, keine echte Malware-Erkennung (der Quellcode liegt offen in diesem Repo).
-So kommst du trotzdem an die Installation:
-
-- In der Play-Protect-Meldung **„Details“** antippen und **„Trotzdem installieren“** wählen
-  (teilweise erscheint die Schaltfläche erst nach dem Aufklappen der Details).
-- Falls die Schaltfläche fehlt: **Play Store → Profil → Play Protect → Zahnrad →
-  „Apps prüfen“** (bzw. „Apps scannen“) vorübergehend deaktivieren, App installieren,
-  danach wieder aktivieren.
-- Bei Samsung zusätzlich: **Galaxy Store → Play Protect** kann dieselbe Sperre zeigen
-  (gleicher Weg). Bei Xiaomi/Huawei heißt die Option „Sicherheit prüfen“ in den
-  Sicherheits-App-Einstellungen.
-
-Alternativ: Ordner in Android Studio öffnen und „Build APK“.
+### Play Protect warnt?
+Das ist ein Heuristik-Filter gegen selbstgeladene APKs, keine echte Malware-Erkennung —
+der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem installieren“** wählen.
+Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
+„Apps prüfen“ kurz aus, installieren, wieder an.
 
 ## Benutzen
-Handy und Konsole im selben WLAN → Serveradresse eintragen → Starten → in Minecraft auf der Konsole
-in der LAN-Liste auswählen. Benachrichtigungen erlauben, sonst bleibt der Dienst unsichtbar im Hintergrund.
+Handy und Konsole im selben WLAN → Serveradresse eintragen → Starten → in Minecraft
+auf der Konsole in der LAN-Liste auswählen.
 
-## Technik
-LAN-Seite: RakNet-Server auf UDP 19132 (Unconnected-Ping mit umgeschriebener Server-ID,
-Connection-Handshake, Frame-Sets mit ACK/Resend, Split-Reassembly). Upstream: NetherNet über
-WebRTC-DataChannels mit Segment-Framing; Bedrock-Batches werden zwischen den Transporten
-1:1 verschoben. RakNet-Fallback: transparentes UDP-Relay pro Konsole (Prinzip wie „phantom“).
-Nintendo Switch wird laut phantom nicht unterstützt.
+## Selbst bauen
+Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes Release-APK
+(Signaturschlüssel in den Repo-Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
+
+## Technik (Kurzfassung)
+RakNet-Server mit vollem Handshake, ACKs, Split-Reassembly und Compression-Handling
+für die Konsole; NetherNet via `/v1/join`-Endpoint und WebRTC-DataChannels mit
+Segment-Framing zum Server. Nintendo Switch wird nicht unterstützt.
