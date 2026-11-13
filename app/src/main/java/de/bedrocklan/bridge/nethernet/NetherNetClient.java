@@ -117,7 +117,12 @@ public final class NetherNetClient {
     }
 
     public static Status parseStatus(String json) {
-        JSONObject o = new JSONObject(json);
+        JSONObject o;
+        try {
+            o = new JSONObject(json);
+        } catch (org.json.JSONException e) {
+            throw new IllegalArgumentException("Status-JSON defekt", e);
+        }
         Status s = new Status();
         s.name = optString(o, "name", "Unbekannt");
         s.protocol = o.optInt("protocol", 0);
