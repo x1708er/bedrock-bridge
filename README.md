@@ -2,25 +2,55 @@
 
 **Kostenlos. Werbefrei. Open Source.**
 
-Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an —
-auf Konsole und PC. Eine Seite, ein Eingabefeld, ein Knopf.
+**Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an — auf Konsole und PC.**
+Eine Seite, ein Eingabefeld, ein Knopf.
 
-- **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551)
-- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
-- Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
+[![Release](https://img.shields.io/github/v/release/x1708er/bedrock-bridge?style=for-the-badge&label=Release)](../../releases)
+[![Downloads](https://img.shields.io/github/downloads/x1708er/bedrock-bridge/total?style=for-the-badge&label=Downloads&color=blue)](../../releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/x1708er/bedrock-bridge/build.yml?style=for-the-badge&label=Build)](../../actions/workflows/build.yml)
+[![Plattform](https://img.shields.io/badge/Plattform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#download)
+[![Android-Version](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge)](#download)
+[![Sprache](https://img.shields.io/badge/Sprache-Java-f89820?style=for-the-badge&logo=openjdk&logoColor=white)](#technik-kurzfassung)
+
+![Kostenlos](https://img.shields.io/badge/Kostenlos-brightgreen?style=flat-square)
+![Werbefrei](https://img.shields.io/badge/Werbefrei-brightgreen?style=flat-square)
+![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat-square)
+
+---
 
 ## Download
+
 Fertiges APK aus dem neuesten [Release](../../releases) laden und installieren
 („Unbekannte Quellen“ erlauben). Updates lassen sich ohne Deinstallation drüberinstallieren.
 Die App prüft beim Start selbst auf neue Releases und zeigt einen Download-Link an.
 
 ### Play Protect warnt?
+
 Das ist ein Heuristik-Filter gegen selbstgeladene APKs, keine echte Malware-Erkennung —
 der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem installieren“** wählen.
+
 Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
 „Apps prüfen“ kurz aus, installieren, wieder an.
 
-## Konto (Online-Server)
+## So funktioniert's
+
+1. App installieren und öffnen.
+2. Handy und Konsole/PC mit **demselben WLAN** verbinden.
+3. **Serveradresse** in der App eintragen (z. B. `mc.example.net`).
+4. **Starten** tippen.
+5. In Minecraft in der Freundes-/LAN-Liste den Server auswählen. Fertig.
+
+> **Hinweis:** Die App muss laufen bleiben, solange gespielt wird.
+
+## Voraussetzungen
+
+- Android-Smartphone mit **Android 8.0** oder neuer
+- Minecraft auf Konsole (Switch wird **nicht** unterstützt) oder PC
+- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` antworten
+  (aktuelle BDS/Geyser-Versionen tun das von sich aus)
+
+## Online-Server: Konto-Anmeldung
+
 Server mit aktivem Online-Mode akzeptieren nur Verbindungen mit einem echten
 Multiplayer-Token von Mojang. Dafür einmalig oben in der App **„Mit Microsoft-Konto
 anmelden“** tippen und den angezeigten Code auf `microsoft.com/link` eingeben
@@ -35,23 +65,23 @@ Der Brücken-Spieler erscheint auf dem Server als **das App-Konto** (Gamertag/XU
 des angemeldeten Microsoft-Kontos) und nur **ein** Brücken-Spieler kann gleichzeitig
 online sein. Das ist das Maximum, das das Protokoll zulässt.
 
-## Benutzen
-Handy und Konsole/PC im selben WLAN → Serveradresse eintragen → Starten → in Minecraft
-in der LAN-Liste auswählen.
-
-## Voraussetzung am Server
-Der Server muss NetherNet anbieten, also auf `GET /v1/join` antworten
-(aktuelle BDS/Geyser-Versionen tun das von sich aus).
+---
 
 ## Selbst bauen
-Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes Release-APK
+
+Einfach forken — jeder Push baut unter **Actions** ein signiertes Release-APK
 (Signaturschlüssel in den Repo-Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
 `KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
 
 ## Technik (Kurzfassung)
-NetherNet-LAN-Discovery mit AES/HMAC nach Spec, WebRTC-Answerer für Geräte im LAN,
-WebRTC-Client zum Server, Nachrichten werden als komplette NetherNet-Frames 1:1
-durchgereicht. Nintendo Switch wird nicht unterstützt.
+
+- **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551),
+  mit AES/HMAC nach Spec
+- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
+- Die App ist ein WebRTC-Answerer für Geräte im LAN und ein WebRTC-Client zum Server
+- Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
+- Nachrichten werden als komplette NetherNet-Frames 1:1 durchgereicht
+- Nintendo Switch wird nicht unterstützt
 
 ## Lizenzen & Namensnennung
 
