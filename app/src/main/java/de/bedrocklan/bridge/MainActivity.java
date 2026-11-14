@@ -106,6 +106,14 @@ public class MainActivity extends Activity {
                 + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
         root.addView(help);
 
+        TextView licenses = new TextView(this);
+        licenses.setText("Lizenzen & Namensnennung");
+        licenses.setTextSize(15);
+        licenses.setTextColor(Color.rgb(120, 170, 255));
+        licenses.setPadding(0, dp(12), 0, 0);
+        licenses.setOnClickListener(v -> showLicenses());
+        root.addView(licenses);
+
         account = new AccountManager(this);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(root);
@@ -248,6 +256,21 @@ public class MainActivity extends Activity {
         }, "update-check");
         t.setDaemon(true);
         t.start();
+    }
+
+    private void showLicenses() {
+        TextView view = new TextView(this);
+        view.setText(Licenses.text());
+        view.setTextSize(13);
+        int pad = dp(16);
+        view.setPadding(pad, pad, pad, pad);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(view);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Lizenzen")
+                .setView(scroll)
+                .setPositiveButton("Schließen", null)
+                .show();
     }
 
     private static boolean isNewer(String candidate, String current) {
