@@ -52,3 +52,23 @@ Einfach forken — jedes Push auf `main` baut unter **Actions** ein signiertes R
 NetherNet-LAN-Discovery mit AES/HMAC nach Spec, WebRTC-Answerer für Geräte im LAN,
 WebRTC-Client zum Server, Nachrichten werden als komplette NetherNet-Frames 1:1
 durchgereicht. Nintendo Switch wird nicht unterstützt.
+
+## Lizenzen & Namensnennung
+
+Die App bündelt **stream-webrtc-android** (Apache 2.0, inkl. Google-libwebrtc
+unter BSD-3). Protokoll-Implementierungen sind Java-Portierungen bzw.
+Ableitungen von:
+
+| Projekt | Lizenz | Grundlage für |
+|---|---|---|
+| [df-mc/go-nethernet](https://github.com/df-mc/go-nethernet) | MIT (Dragonfly Tech) | NetherNet-LAN-Discovery, Signaling, Segment-Framing, Identitäts-Assertionen |
+| [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (Spec, keine Lizenzdatei) | Protokollbeschreibung LAN-Discovery |
+| [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox-Online-Anmeldung (MSA → XSTS → PlayFab → MCToken) |
+| [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport-Identity-Binding, Login-Validierung |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTP-Signaling (`/v1/join`), Identity-Validierung |
+| [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login-Envelope-Format |
+| [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Doku der Authentifizierungskette (`docs/auth.md`) |
+| [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Gebündelte WebRTC-Bibliothek |
+
+Vollständige Lizenztexte und Copyright-Hinweise:
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
