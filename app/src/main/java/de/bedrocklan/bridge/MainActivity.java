@@ -573,7 +573,7 @@ public class MainActivity extends Activity {
                 sep.setBackgroundColor(STROKE);
                 LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
-                favList.addView(sp);
+                favList.addView(sep, sp);
             }
         }
     }
