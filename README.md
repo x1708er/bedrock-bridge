@@ -1,108 +1,115 @@
 # Bedrock LAN-Brücke
 
-**Kostenlos. Werbefrei. Open Source.**
+**Language:** English | [Deutsch](README.de.md)
 
-**Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an — auf Konsole und PC.**
-Eine Seite, ein Eingabefeld, ein Knopf.
+**Free. No ads. Open source.**
+
+**Makes any public Bedrock server show up in Minecraft's LAN list — on console and PC.**
+One page, one input field, one button.
 
 [![Release](https://img.shields.io/github/v/release/x1708er/bedrock-bridge?style=flat&label=Release)](../../releases)
 [![Downloads](https://img.shields.io/github/downloads/x1708er/bedrock-bridge/total?style=flat&label=Downloads&color=blue)](../../releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/x1708er/bedrock-bridge/build.yml?style=flat&label=Build)](../../actions/workflows/build.yml)
-[![Plattform](https://img.shields.io/badge/Plattform-Android-3DDC84?style=flat&logo=android&logoColor=white)](#download)
-[![Android-Version](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat)](#download)
-[![Sprache](https://img.shields.io/badge/Sprache-Java-f89820?style=flat&logo=openjdk&logoColor=white)](#technik-kurzfassung)
+[![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?style=flat&logo=android&logoColor=white)](#download)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat)](#download)
+[![Language](https://img.shields.io/badge/Language-Java-f89820?style=flat&logo=openjdk&logoColor=white)](#tech-short-version)
+[![License](https://img.shields.io/badge/License-MIT-brightgreen?style=flat)](LICENSE)
 
-![Kostenlos](https://img.shields.io/badge/Kostenlos-brightgreen?style=flat)
-![Werbefrei](https://img.shields.io/badge/Werbefrei-brightgreen?style=flat)
+![Free](https://img.shields.io/badge/Free-brightgreen?style=flat)
+![No ads](https://img.shields.io/badge/No_ads-brightgreen?style=flat)
 ![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat)
+
+<p align="center">
+  <img src="docs/screenshot.jpg" width="360" alt="Screenshot of the Bedrock LAN-Brücke app">
+</p>
 
 ---
 
 ## Download
 
-Fertiges APK aus dem neuesten [Release](../../releases) laden und installieren
-(„Unbekannte Quellen“ erlauben). Updates lassen sich ohne Deinstallation drüberinstallieren.
-Die App prüft beim Start selbst auf neue Releases und zeigt einen Download-Link an.
+Download the APK from the latest [release](../../releases) and install it
+(allow "unknown sources"). Updates can be installed on top without uninstalling.
+The app checks for new releases on startup and shows a download link.
 
-### Play Protect warnt?
+### Play Protect warns you?
 
-Das ist ein Heuristik-Filter gegen selbstgeladene APKs, keine echte Malware-Erkennung —
-der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem installieren“** wählen.
+That's a heuristic filter for sideloaded APKs, not actual malware detection —
+the source code is right here. In the dialog choose **"More details" → "Install anyway"**.
 
-Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
-„Apps prüfen“ kurz aus, installieren, wieder an.
+If that button is missing: Play Store → Profile → Play Protect → Settings →
+temporarily disable "Scan apps", install, re-enable.
 
-## So funktioniert's
+## How to use
 
-1. App installieren und öffnen.
-2. Handy und Konsole/PC mit **demselben WLAN** verbinden.
-3. **Serveradresse** in der App eintragen (z. B. `mc.example.net`).
-4. **Starten** tippen.
-5. In Minecraft in der Freundes-/LAN-Liste den Server auswählen. Fertig.
+1. Install and open the app.
+2. Connect your phone and console/PC to the **same Wi-Fi**.
+3. Enter the **server address** (e.g. `mc.example.net`).
+4. Tap **Start**.
+5. In Minecraft, pick the server in the friends/LAN list. Done.
 
-> **Hinweis:** Die App muss laufen bleiben, solange gespielt wird. Viele Handy-Hersteller
-> (Samsung, Xiaomi, Huawei, …) killen Apps im Hintergrund „zum Stromsparen“ — die Verbindung
-> bricht dann mitten im Spiel ab. Anleitung für dein Gerät:
+> **Note:** The app has to keep running while you play. Many phone manufacturers
+> (Samsung, Xiaomi, Huawei, …) kill background apps "to save battery" — which drops
+> the connection mid-game. Instructions for your device:
 > [dontkillmyapp.com](https://dontkillmyapp.com)
 
-## Voraussetzungen
+## Requirements
 
-- Android-Smartphone mit **Android 8.0** oder neuer
-- Minecraft auf Konsole (Switch wird **nicht** unterstützt) oder PC
-- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` antworten
-  (aktuelle BDS/Geyser-Versionen tun das von sich aus)
+- Android phone with **Android 8.0** or newer
+- Minecraft on console (Switch is **not** supported) or PC
+- The server must offer **NetherNet**, i.e. answer `GET /v1/join`
+  (current BDS/Geyser versions do that out of the box)
 
-## Online-Server: Konto-Anmeldung
+## Online servers: account sign-in
 
-Server mit aktivem Online-Mode akzeptieren nur Verbindungen mit einem echten
-Multiplayer-Token von Mojang. Dafür einmalig oben in der App **„Mit Microsoft-Konto
-anmelden“** tippen und den angezeigten Code auf `microsoft.com/link` eingeben
-(das Konto, unter dem auf dem Server gespielt werden soll). Die App speichert
-nur den Refresh-Token, holt damit automatisch XSTS → PlayFab → MCToken →
-Multiplayer-Token und bettet ihn in die WebRTC-Identität ein.
+Servers with online mode enabled only accept connections with a real Mojang
+multiplayer token. For that, tap **"Sign in with Microsoft account"** at the top of the
+app once and enter the shown code at `microsoft.com/link`
+(the account you want to play as on the server). The app only stores the refresh
+token and automatically obtains XSTS → PlayFab → MCToken → multiplayer token,
+embedding it into the WebRTC identity.
 
-**Wichtig:** Mojangs Anti-Proxy-Binding (Transport-Identität = Login-Identität)
-verlangt, dass das Login der Konsole mit demselben Schlüssel signiert ist wie
-die Verbindung der App. Die App schreibt deshalb das Login auf das App-Konto um:
-Der Brücken-Spieler erscheint auf dem Server als **das App-Konto** (Gamertag/XUID
-des angemeldeten Microsoft-Kontos) und nur **ein** Brücken-Spieler kann gleichzeitig
-online sein. Das ist das Maximum, das das Protokoll zulässt.
+**Important:** Mojang's anti-proxy binding (transport identity = login identity)
+requires the console's login to be signed with the same key as the app's connection.
+The app therefore rewrites the login to the app account: the bridge player appears
+on the server as **the app account** (gamertag/XUID of the signed-in Microsoft account),
+and only **one** bridge player can be online at a time. That's the maximum the protocol allows.
 
 ---
 
-## Selbst bauen
+## Building it yourself
 
-Einfach forken — unter **Actions** den Workflow **„APK bauen“** per Hand starten
-(**„Run workflow“**), das erzeugt ein signiertes Release-APK
-(Signaturschlüssel in den Repo-Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+Just fork — under **Actions**, start the **"APK bauen"** workflow manually
+(**"Run workflow"**); it produces a signed release APK
+(signing key in the repo secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
 `KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
 
-## Technik (Kurzfassung)
+## Tech (short version)
 
-- **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551),
-  mit AES/HMAC nach Spec
-- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
-- Die App ist ein WebRTC-Answerer für Geräte im LAN und ein WebRTC-Client zum Server
-- Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
-- Nachrichten werden als komplette NetherNet-Frames 1:1 durchgereicht
-- Nintendo Switch wird nicht unterstützt
+- **No RakNet at all:** LAN discovery via the official NetherNet protocol (UDP 7551),
+  with AES/HMAC per spec
+- **WebRTC end-to-end:** devices connect to the app via WebRTC, the app connects to the server via WebRTC
+- The app is a WebRTC answerer for devices on the LAN and a WebRTC client towards the server
+- Server list, player count, version and nonce come live from the server's `/v1/join` endpoint
+- Messages are passed through 1:1 as complete NetherNet frames
+- Nintendo Switch is not supported
 
-## Lizenzen & Namensnennung
+## Licenses & credits
 
-Die App bündelt **stream-webrtc-android** (Apache 2.0, inkl. Google-libwebrtc
-unter BSD-3). Protokoll-Implementierungen sind Java-Portierungen bzw.
-Ableitungen von:
+The project itself is **MIT-licensed** ([LICENSE](LICENSE)).
 
-| Projekt | Lizenz | Grundlage für |
+The app bundles **stream-webrtc-android** (Apache 2.0, including Google's libwebrtc
+under BSD-3). Protocol implementations are Java ports of, or derived from:
+
+| Project | License | Basis for |
 |---|---|---|
-| [df-mc/go-nethernet](https://github.com/df-mc/go-nethernet) | MIT (Dragonfly Tech) | NetherNet-LAN-Discovery, Signaling, Segment-Framing, Identitäts-Assertionen |
-| [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (Spec, keine Lizenzdatei) | Protokollbeschreibung LAN-Discovery |
-| [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox-Online-Anmeldung (MSA → XSTS → PlayFab → MCToken) |
-| [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport-Identity-Binding, Login-Validierung |
-| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTP-Signaling (`/v1/join`), Identity-Validierung |
-| [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login-Envelope-Format |
-| [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Doku der Authentifizierungskette (`docs/auth.md`) |
-| [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Gebündelte WebRTC-Bibliothek |
+| [df-mc/go-nethernet](https://github.com/df-mc/go-nethernet) | MIT (Dragonfly Tech) | NetherNet LAN discovery, signaling, segment framing, identity assertions |
+| [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (spec, no license file) | LAN discovery protocol description |
+| [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox online sign-in (MSA → XSTS → PlayFab → MCToken) |
+| [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport identity binding, login validation |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTP signaling (`/v1/join`), identity validation |
+| [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login envelope format |
+| [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Authentication chain docs (`docs/auth.md`) |
+| [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Bundled WebRTC library |
 
-Vollständige Lizenztexte und Copyright-Hinweise:
+Full license texts and copyright notices:
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
