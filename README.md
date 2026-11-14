@@ -5,16 +5,16 @@
 **Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an — auf Konsole und PC.**
 Eine Seite, ein Eingabefeld, ein Knopf.
 
-[![Release](https://img.shields.io/github/v/release/x1708er/bedrock-bridge?style=flat-square&label=Release)](../../releases)
-[![Downloads](https://img.shields.io/github/downloads/x1708er/bedrock-bridge/total?style=flat-square&label=Downloads&color=blue)](../../releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/x1708er/bedrock-bridge/build.yml?style=flat-square&label=Build)](../../actions/workflows/build.yml)
-[![Plattform](https://img.shields.io/badge/Plattform-Android-3DDC84?style=flat-square&logo=android&logoColor=white)](#download)
-[![Android-Version](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square)](#download)
-[![Sprache](https://img.shields.io/badge/Sprache-Java-f89820?style=flat-square&logo=openjdk&logoColor=white)](#technik-kurzfassung)
+[![Release](https://img.shields.io/github/v/release/x1708er/bedrock-bridge?style=flat&label=Release)](../../releases)
+[![Downloads](https://img.shields.io/github/downloads/x1708er/bedrock-bridge/total?style=flat&label=Downloads&color=blue)](../../releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/x1708er/bedrock-bridge/build.yml?style=flat&label=Build)](../../actions/workflows/build.yml)
+[![Plattform](https://img.shields.io/badge/Plattform-Android-3DDC84?style=flat&logo=android&logoColor=white)](#download)
+[![Android-Version](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat)](#download)
+[![Sprache](https://img.shields.io/badge/Sprache-Java-f89820?style=flat&logo=openjdk&logoColor=white)](#technik-kurzfassung)
 
-![Kostenlos](https://img.shields.io/badge/Kostenlos-brightgreen?style=flat-square)
-![Werbefrei](https://img.shields.io/badge/Werbefrei-brightgreen?style=flat-square)
-![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat-square)
+![Kostenlos](https://img.shields.io/badge/Kostenlos-brightgreen?style=flat)
+![Werbefrei](https://img.shields.io/badge/Werbefrei-brightgreen?style=flat)
+![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat)
 
 ---
 
