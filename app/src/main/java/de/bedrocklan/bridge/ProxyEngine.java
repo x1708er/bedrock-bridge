@@ -289,7 +289,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         d.editorWorld = s.editor;
         d.hardcore = s.hardcore;
         d.onlineAuth = s.onlineAuth;
-        d.selfSignedAuth = s.selfSignedAuth;
+        // Die Brücke nimmt Self-Signed-Logins an und schreibt sie auf das App-Konto um.
+        d.selfSignedAuth = true;
         d.nonce = s.nonce != null && !s.nonce.isEmpty() ? s.nonce
                 : Discovery.hexEncode(randomBytes(8));
         d.connectionType = 4;
