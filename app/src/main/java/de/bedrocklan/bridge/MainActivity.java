@@ -85,13 +85,13 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(MUTED);
         root.addView(subtitle);
 
-        LinearLayout serverCard = card();
+        LinearLayout inputCard = card();
 
         TextView hint = new TextView(this);
         hint.setText("Serveradresse (mit oder ohne Port)");
         hint.setTextSize(13);
         hint.setTextColor(MUTED);
-        serverCard.addView(hint);
+        inputCard.addView(hint);
 
         input = new EditText(this);
         input.setSingleLine(true);
@@ -109,7 +109,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         ip.topMargin = dp(8);
-        serverCard.addView(input, ip);
+        inputCard.addView(input, ip);
 
         button = new Button(this);
         button.setTextSize(17);
@@ -121,9 +121,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
         bp.topMargin = dp(12);
-        serverCard.addView(button, bp);
+        inputCard.addView(button, bp);
 
-        root.addView(serverCard, cardLp());
+        root.addView(inputCard, cardLp());
 
         status = new TextView(this);
         status.setTextSize(15);

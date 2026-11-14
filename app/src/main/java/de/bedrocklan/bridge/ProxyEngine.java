@@ -193,7 +193,7 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                 if (status != null) {
                     serverData = buildServerData(status);
                     State.setServerInfo(d(serverData.serverName), d(serverData.levelName),
-                            serverData.players, serverData.maxPlayerCount, d(serverData.version));
+                            serverData.playerCount, serverData.maxPlayerCount, d(serverData.version));
                     problem = null;
                 } else {
                     problem = "Server bietet kein NetherNet an (HTTP-Endpunkt fehlt).";
