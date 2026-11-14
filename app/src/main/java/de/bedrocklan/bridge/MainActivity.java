@@ -381,6 +381,9 @@ public class MainActivity extends Activity {
     private void updateUi() {
         Phase phase = State.getPhase();
         boolean on = State.running;
+        if (phase == Phase.OFF || !on) {
+            State.status = getString(R.string.status_off);
+        }
         if (button.getTag() == null || !button.getTag().equals(on)) {
             button.setTag(on);
             button.setText(on ? R.string.action_stop : R.string.action_start);
