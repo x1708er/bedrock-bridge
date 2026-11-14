@@ -63,8 +63,10 @@ temporarily disable "Scan apps", install, re-enable.
 
 - Android phone with **Android 8.0** or newer
 - Minecraft on console (Switch is **not** supported) or PC
-- The server must offer **NetherNet**, i.e. answer `GET /v1/join` over **HTTPS**
+- The server must offer **NetherNet**, i.e. answer `GET /v1/join`
   (current BDS/Geyser versions do that out of the box)
+- The app prefers **HTTPS**. If the server only offers **HTTP**, a fallback
+  with a visible warning is used
 
 ## Online servers: account sign-in
 
@@ -113,7 +115,7 @@ under BSD-3). Protocol implementations are Java ports of, or derived from:
 | [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (spec, no license file) | LAN discovery protocol description |
 | [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox online sign-in (MSA → XSTS → PlayFab → MCToken) |
 | [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport identity binding, login validation |
-| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS signaling (`/v1/join`), identity validation |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS/HTTP signaling (`/v1/join`), identity validation |
 | [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login envelope format |
 | [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Authentication chain docs (`docs/auth.md`) |
 | [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Bundled WebRTC library |

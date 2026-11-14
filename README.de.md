@@ -63,8 +63,10 @@ Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einste
 
 - Android-Smartphone mit **Android 8.0** oder neuer
 - Minecraft auf Konsole (Switch wird **nicht** unterstützt) oder PC
-- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` über **HTTPS** antworten
+- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` antworten
   (aktuelle BDS/Geyser-Versionen tun das von sich aus)
+- Die App bevorzugt **HTTPS**. Bietet der Server nur **HTTP** an, wird ein
+  Fallback mit Warnhinweis genutzt
 
 ## Online-Server: Konto-Anmeldung
 
@@ -115,7 +117,7 @@ Ableitungen von:
 | [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (Spec, keine Lizenzdatei) | Protokollbeschreibung LAN-Discovery |
 | [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox-Online-Anmeldung (MSA → XSTS → PlayFab → MCToken) |
 | [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport-Identity-Binding, Login-Validierung |
-| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS-Signaling (`/v1/join`), Identity-Validierung |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS/HTTP-Signaling (`/v1/join`), Identity-Validierung |
 | [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login-Envelope-Format |
 | [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Doku der Authentifizierungskette (`docs/auth.md`) |
 | [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Gebündelte WebRTC-Bibliothek |

@@ -74,8 +74,9 @@
     <string name="status_stopped">Gestoppt</string>
     <string name="status_port_busy">UDP-Port %1$d ist belegt. Läuft schon eine andere Brücken-App? Dann diese beenden.</string>
     <string name="status_start_failed">Start fehlgeschlagen: %1$s</string>
-    <string name="status_no_nethernet">Server bietet kein NetherNet an (HTTPS-Endpunkt fehlt).</string>
+    <string name="status_no_nethernet">Server bietet kein NetherNet an (HTTPS/HTTP-Endpunkt fehlt).</string>
     <string name="status_unreachable">Server antwortet nicht. Adresse und Port prüfen.</string>
+    <string name="status_http_fallback">Warnung: Server nutzt unverschlüsseltes HTTP für NetherNet. Anmeldedaten können im Netzwerk mitgelesen werden.</string>
     <string name="status_probe_error">Serverstatus-Fehler.</string>
     <string name="status_active">Läuft. Gerät ist verbunden und spielt.</string>
     <string name="status_linked">Läuft. Gerät verbunden, Verbindung zum Server läuft.</string>

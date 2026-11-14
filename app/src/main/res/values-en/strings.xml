@@ -74,8 +74,9 @@
     <string name="status_stopped">Stopped</string>
     <string name="status_port_busy">UDP port %1$d is already in use. Is another bridge app running? Close it.</string>
     <string name="status_start_failed">Start failed: %1$s</string>
-    <string name="status_no_nethernet">Server does not offer NetherNet (HTTPS endpoint missing).</string>
+    <string name="status_no_nethernet">Server does not offer NetherNet (HTTPS/HTTP endpoint missing).</string>
     <string name="status_unreachable">Server is not responding. Check address and port.</string>
+    <string name="status_http_fallback">Warning: server uses unencrypted HTTP for NetherNet. Sign-in data can be read on the network.</string>
     <string name="status_probe_error">Server status error.</string>
     <string name="status_active">Running. Device is connected and playing.</string>
     <string name="status_linked">Running. Device connected, connection to the server is being established.</string>

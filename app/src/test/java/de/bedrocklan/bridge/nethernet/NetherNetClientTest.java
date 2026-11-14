@@ -11,66 +11,64 @@ import java.util.List;
 public class NetherNetClientTest {
 
     @Test
-    public void candidateBases_sindAusschliesslichHttps() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("mc.example.com", 19132);
-        assertEquals(2, bases.size());
+    public void candidateBases_httpsZuerstDannHttpFallback() {
+        List<String> bases = NetherNetClient.candidateBases("mc.example.com", 19132);
+        assertEquals(4, bases.size());
         assertEquals("https://mc.example.com:19132", bases.get(0));
-        assertEquals("https://mc.example.com", bases.get(1));
-        for (String b : bases) {
-            assertTrue(b.startsWith("https://"));
-            assertFalse(b.startsWith("http://"));
-        }
+        assertEquals("http://mc.example.com:19132", bases.get(1));
+        assertEquals("https://mc.example.com", bases.get(2));
+        assertEquals("http://mc.example.com", bases.get(3));
     }
 
     @Test
     public void candidateBases_andererPort_nurMitPort() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("mc.example.com", 19140);
-        assertEquals(1, bases.size());
+        List<String> bases = NetherNetClient.candidateBases("mc.example.com", 19140);
+        assertEquals(2, bases.size());
         assertEquals("https://mc.example.com:19140", bases.get(0));
+        assertEquals("http://mc.example.com:19140", bases.get(1));
     }
 
     @Test
     public void candidateBases_portNull_defaultPort() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("h.example", 0);
+        List<String> bases = NetherNetClient.candidateBases("h.example", 0);
         assertEquals("https://h.example:19132", bases.get(0));
+        assertEquals("http://h.example:19132", bases.get(1));
     }
 
     @Test
-    public void candidateBases_httpWirdAufHttpsNormalisiert() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("http://h.example", 19140);
+    public void candidateBases_schemaWirdNormalisiert() {
+        List<String> bases = NetherNetClient.candidateBases("http://h.example", 19140);
         assertEquals("https://h.example:19140", bases.get(0));
-        for (String b : bases) {
-            assertTrue(b.startsWith("https://"));
-        }
+        assertEquals("http://h.example:19140", bases.get(1));
     }
 
     @Test
     public void candidateBases_unbekanntesSchema_wirdVerworfen() {
-        assertTrue(NetherNetClient.httpsCandidateBases("ftp://h.example", 19132).isEmpty());
-        assertTrue(NetherNetClient.httpsCandidateBases("tcp://h.example", 19132).isEmpty());
+        assertTrue(NetherNetClient.candidateBases("ftp://h.example", 19132).isEmpty());
+        assertTrue(NetherNetClient.candidateBases("tcp://h.example", 19132).isEmpty());
     }
 
     @Test
     public void candidateBases_leerOhneHost() {
-        assertTrue(NetherNetClient.httpsCandidateBases("", 19132).isEmpty());
-        assertTrue(NetherNetClient.httpsCandidateBases(null, 19132).isEmpty());
+        assertTrue(NetherNetClient.candidateBases("", 19132).isEmpty());
+        assertTrue(NetherNetClient.candidateBases(null, 19132).isEmpty());
     }
 
     @Test
     public void candidateBases_ipv6WirdGeklammert() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("2001:db8::1", 19132);
+        List<String> bases = NetherNetClient.candidateBases("2001:db8::1", 19132);
         assertEquals("https://[2001:db8::1]:19132", bases.get(0));
-        assertEquals("https://[2001:db8::1]", bases.get(1));
-        for (String b : bases) {
-            assertTrue(b.startsWith("https://["));
-        }
+        assertEquals("http://[2001:db8::1]:19132", bases.get(1));
+        assertEquals("https://[2001:db8::1]", bases.get(2));
+        assertEquals("http://[2001:db8::1]", bases.get(3));
     }
 
     @Test
     public void candidateBases_ipv6AndererPort() {
-        List<String> bases = NetherNetClient.httpsCandidateBases("fe80::a", 19140);
-        assertEquals(1, bases.size());
+        List<String> bases = NetherNetClient.candidateBases("fe80::a", 19140);
+        assertEquals(2, bases.size());
         assertEquals("https://[fe80::a]:19140", bases.get(0));
+        assertEquals("http://[fe80::a]:19140", bases.get(1));
     }
 
     @Test

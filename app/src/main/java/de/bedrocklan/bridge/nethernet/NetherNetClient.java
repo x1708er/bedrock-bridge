@@ -14,9 +14,10 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * NetherNet-Signaling über den HTTPS-Endpunkt des Servers (GET/POST /v1/join),
- * wie ihn der Vanilla-Client für "externe Server" verwendet (df-mc/nethernet-spec).
- * HTTP wird nicht unterstützt.
+ * NetherNet-Signaling über den Server-Endpunkt (GET/POST /v1/join), wie ihn der
+ * Vanilla-Client für "externe Server" verwendet (df-mc/nethernet-spec). HTTPS
+ * wird bevorzugt; fehlt TLS, wird auf HTTP zurückgefallen und der Aufrufer kann
+ * das über {@link #endpointInsecure()} als Warnung anzeigen.
  */
 public final class NetherNetClient {
     private final String host;
@@ -85,7 +86,6 @@ public final class NetherNetClient {
 
     private String postSdp(String offerSdp, int timeoutMs) throws IOException {
         String url = endpointBase + "/v1/join/" + networkId;
-        if (!url.startsWith("https://")) throw new IOException("Nur HTTPS erlaubt: " + abbrevBase(endpointBase));
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
             c.setRequestMethod("POST");
@@ -112,11 +112,6 @@ public final class NetherNetClient {
         }
     }
 
-    private static String abbrevBase(String url) {
-        int scheme = url.indexOf("://");
-        return scheme < 0 ? url : url.substring(0, scheme) + "://…";
-    }
-
     private Status httpGetStatus(String url, int timeoutMs) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
@@ -133,16 +128,22 @@ public final class NetherNetClient {
         }
     }
 
-    /** Nur HTTPS-Kandidaten; HTTP wird grundsätzlich nicht unterstützt. */
+    /** HTTPS-Kandidaten zuerst, danach HTTP-Fallback. */
     private List<String> candidateBases() {
-        return httpsCandidateBases(host, port);
+        return candidateBases(host, port);
+    }
+
+    /** True, wenn die aktuell gecachte Signaling-Basis unverschlüsseltes HTTP nutzt. */
+    public synchronized boolean endpointInsecure() {
+        return endpointBase != null && endpointBase.startsWith("http://");
     }
 
     /**
-     * HTTPS-Basis-URLs für einen Server. Explizit angegebenes „http://“ wird
-     * eindeutig auf „https://“ normalisiert, unbekannte Schemata verworfen.
+     * Basis-URLs für einen Server: HTTPS wird immer zuerst probiert; erst wenn
+     * TLS nicht verfügbar ist, folgt HTTP. Explizit angegebene Schemata werden
+     * normalisiert, unbekannte Schemata verworfen.
      */
-    public static List<String> httpsCandidateBases(String host, int port) {
+    public static List<String> candidateBases(String host, int port) {
         List<String> l = new ArrayList<>();
         String h = host == null ? "" : host.trim();
         if (h.isEmpty()) return l;
@@ -151,7 +152,11 @@ public final class NetherNetClient {
         else if (h.contains("://")) return l;
         int p = port == 0 ? 19132 : port;
         l.add("https://" + hostPort(h, p));
-        if (p == 19132) l.add("https://" + bracketIpv6(h));
+        l.add("http://" + hostPort(h, p));
+        if (p == 19132) {
+            l.add("https://" + bracketIpv6(h));
+            l.add("http://" + bracketIpv6(h));
+        }
         return l;
     }
 
