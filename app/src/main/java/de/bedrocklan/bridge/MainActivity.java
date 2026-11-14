@@ -6,12 +6,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
+import android.content.res.ColorStateList;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.View;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
@@ -24,6 +30,16 @@ import de.bedrocklan.bridge.auth.AccountManager;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
+    private static final int BG = 0xFF13141B;
+    private static final int CARD = 0xFF1D1E28;
+    private static final int FIELD = 0xFF171821;
+    private static final int STROKE = 0xFF2B2C3B;
+    private static final int TEXT = 0xFFEDEDF2;
+    private static final int MUTED = 0xFF9A9DAF;
+    private static final int GREEN = 0xFF4CAF6E;
+    private static final int RED = 0xFFE0564F;
+    private static final int LINK = 0xFF8AB8FF;
+
     private EditText input;
     private Button button;
     private TextView status;
@@ -45,72 +61,128 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
 
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().getInsetsController().setSystemBarsAppearance(
+                    0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        } else {
+            View decor = getWindow().getDecorView();
+            decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                    & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(32), dp(24), dp(24));
+        root.setPadding(dp(20), dp(28), dp(20), dp(20));
+        root.setBackgroundColor(BG);
 
         TextView title = new TextView(this);
         title.setText("Bedrock LAN-Brücke");
-        title.setTextSize(24);
+        title.setTextSize(26);
+        title.setTextColor(TEXT);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         root.addView(title);
 
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Minecraft-Bedrock-Server im LAN sichtbar machen");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(MUTED);
+        root.addView(subtitle);
+
+        LinearLayout serverCard = card();
+
         TextView hint = new TextView(this);
-        hint.setText("Serveradresse (mit oder ohne Port):");
-        hint.setPadding(0, dp(24), 0, dp(4));
-        root.addView(hint);
+        hint.setText("Serveradresse (mit oder ohne Port)");
+        hint.setTextSize(13);
+        hint.setTextColor(MUTED);
+        serverCard.addView(hint);
 
         input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setHint("z. B. play.beispiel.de:19132");
         input.setText(getPreferences(MODE_PRIVATE).getString("server", ""));
-        root.addView(input);
+        input.setTextSize(15);
+        input.setTextColor(TEXT);
+        input.setHintTextColor(0x809A9DAF);
+        StateListDrawable field = new StateListDrawable();
+        field.addState(new int[]{android.R.attr.state_focused}, rounded(FIELD, GREEN));
+        field.addState(new int[0], rounded(FIELD, STROKE));
+        input.setBackground(field);
+        input.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ip.topMargin = dp(8);
+        serverCard.addView(input, ip);
 
         button = new Button(this);
-        button.setTextSize(20);
+        button.setTextSize(17);
+        button.setTextColor(0xFFFFFFFF);
+        button.setAllCaps(false);
+        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        setRipple(button, rounded(GREEN, 0));
         button.setOnClickListener(v -> onButton());
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(64));
-        bp.topMargin = dp(16);
-        root.addView(button, bp);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
+        bp.topMargin = dp(12);
+        serverCard.addView(button, bp);
+
+        root.addView(serverCard, cardLp());
 
         status = new TextView(this);
-        status.setTextSize(18);
-        status.setPadding(0, dp(24), 0, dp(24));
+        status.setTextSize(15);
+        status.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        status.setPadding(dp(4), 0, dp(4), 0);
         root.addView(status);
 
+        LinearLayout accountCard = card();
+
         accountStatus = new TextView(this);
-        accountStatus.setTextSize(16);
-        accountStatus.setPadding(0, dp(8), 0, dp(4));
-        root.addView(accountStatus);
+        accountStatus.setTextSize(13);
+        accountStatus.setTextColor(MUTED);
+        accountCard.addView(accountStatus);
 
         accountButton = new Button(this);
-        accountButton.setTextSize(16);
+        accountButton.setTextSize(14);
+        accountButton.setTextColor(TEXT);
+        accountButton.setAllCaps(false);
+        setRipple(accountButton, rounded(0x00000000, 0xFF3B3D52));
         accountButton.setOnClickListener(v -> onAccountButton());
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
-        root.addView(accountButton, ap);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        ap.topMargin = dp(10);
+        accountCard.addView(accountButton, ap);
+
+        root.addView(accountCard, cardLp());
 
         updateRow = new TextView(this);
-        updateRow.setTextSize(15);
-        updateRow.setTextColor(Color.rgb(120, 170, 255));
-        updateRow.setPadding(0, dp(20), 0, 0);
-        updateRow.setVisibility(android.view.View.GONE);
+        updateRow.setTextSize(14);
+        updateRow.setTextColor(LINK);
+        updateRow.setPadding(dp(4), 0, dp(4), dp(12));
+        updateRow.setVisibility(View.GONE);
         root.addView(updateRow);
 
+        LinearLayout helpCard = card();
         TextView help = new TextView(this);
         help.setText("So geht's:\n"
                 + "1. Handy und Konsole/PC im selben WLAN.\n"
                 + "2. Serveradresse eingeben, „Starten“ drücken.\n"
                 + "3. Minecraft öffnen und in der Liste der LAN-Spiele den Server wählen.\n\n"
                 + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
-        root.addView(help);
+        help.setTextSize(13);
+        help.setTextColor(MUTED);
+        help.setLineSpacing(dp(3), 1f);
+        helpCard.addView(help);
+        root.addView(helpCard, cardLp());
 
         TextView licenses = new TextView(this);
         licenses.setText("Lizenzen & Namensnennung");
-        licenses.setTextSize(15);
-        licenses.setTextColor(Color.rgb(120, 170, 255));
-        licenses.setPadding(0, dp(12), 0, 0);
+        licenses.setTextSize(14);
+        licenses.setTextColor(LINK);
+        licenses.setPadding(dp(4), 0, dp(4), dp(8));
         licenses.setOnClickListener(v -> showLicenses());
         root.addView(licenses);
 
@@ -119,6 +191,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
         updateAccountUi();
+        updateUi();
         checkForUpdate();
 
         if (Build.VERSION.SDK_INT >= 33
@@ -170,14 +243,19 @@ public class MainActivity extends Activity {
 
     private void updateUi() {
         boolean on = State.running;
-        button.setText(on ? "Stoppen" : "Starten");
+        if (button.getTag() == null || !button.getTag().equals(on)) {
+            button.setTag(on);
+            button.setText(on ? "Stoppen" : "Starten");
+            setRipple(button, rounded(on ? RED : GREEN, 0));
+        }
         input.setEnabled(!on);
+        input.setAlpha(on ? 0.6f : 1f);
         if (localError != null) {
             status.setText(localError);
-            status.setTextColor(Color.rgb(255, 120, 120));
+            status.setTextColor(0xFFFF7B72);
         } else {
             status.setText(State.status);
-            status.setTextColor(on ? Color.rgb(120, 220, 120) : Color.LTGRAY);
+            status.setTextColor(on ? 0xFF6EDC7E : MUTED);
         }
     }
 
@@ -203,6 +281,7 @@ public class MainActivity extends Activity {
                     accountButton.setEnabled(true);
                     updateAccountUi();
                     if (gamertag == null) {
+                        accountStatus.setTextColor(0xFFFF7B72);
                         accountStatus.setText(error != null ? error : "Anmeldung fehlgeschlagen.");
                     }
                 });
@@ -213,6 +292,7 @@ public class MainActivity extends Activity {
     private void updateAccountUi() {
         boolean in = account.isSignedIn();
         accountButton.setText(in ? "Abmelden" : "Mit Microsoft-Konto anmelden");
+        accountStatus.setTextColor(in ? TEXT : MUTED);
         if (in) {
             String tag = account.gamertag();
             accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto"));
@@ -325,5 +405,32 @@ public class MainActivity extends Activity {
 
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private GradientDrawable rounded(int color, int strokeColor) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(16));
+        if (strokeColor != 0) g.setStroke(dp(1), strokeColor);
+        return g;
+    }
+
+    private void setRipple(View v, GradientDrawable bg) {
+        v.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), bg, null));
+    }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(rounded(CARD, STROKE));
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        return c;
+    }
+
+    private LinearLayout.LayoutParams cardLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(16);
+        return lp;
     }
 }
