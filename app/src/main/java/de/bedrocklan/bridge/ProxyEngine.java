@@ -127,7 +127,7 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                             peerAddress = from;
                         }
                     }
-                    if (activePeer == pk.senderId) {
+                    if (activePeer == -1 || activePeer == pk.senderId) {
                         handleSignal(pk.senderId, from, pk.messageData);
                     }
                 }

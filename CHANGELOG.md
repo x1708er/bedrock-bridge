@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.9 – 2026-11-14
+
+### Fixed
+- First incoming device connection was ignored after the single-device refactor, preventing any Minecraft client from joining.
+
 ## 0.0.8 – 2026-11-14
 
 ### Changed
