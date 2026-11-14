@@ -1,4 +1,4 @@
-# Bedrock LAN-Brücke
+# Bedrock LAN Bridge
 
 **Language:** English | [Deutsch](README.de.md)
 
@@ -20,7 +20,7 @@ One page, one input field, one button.
 ![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat)
 
 <p align="center">
-  <img src="docs/screenshot.jpg" width="360" alt="Screenshot of the Bedrock LAN-Brücke app">
+  <img src="docs/screenshot-en.jpg" width="360" alt="Screenshot of the Bedrock LAN Bridge app in English">
 </p>
 
 ---

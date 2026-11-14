@@ -20,7 +20,7 @@ Eine Seite, ein Eingabefeld, ein Knopf.
 ![Open Source](https://img.shields.io/badge/Open_Source-brightgreen?style=flat)
 
 <p align="center">
-  <img src="docs/screenshot.jpg" width="360" alt="Screenshot der Bedrock LAN-Brücke-App">
+  <img src="docs/screenshot-de.jpg" width="360" alt="Screenshot der Bedrock LAN-Brücke-App in Deutsch">
 </p>
 
 ---
