@@ -383,6 +383,10 @@ public class MainActivity extends Activity {
         boolean on = State.running;
         if (phase == Phase.OFF || !on) {
             State.status = getString(R.string.status_off);
+        } else if (phase == Phase.RUNNING) {
+            State.status = getString(R.string.status_idle);
+        } else if (phase == Phase.STARTING) {
+            State.status = getString(R.string.status_starting);
         }
         if (button.getTag() == null || !button.getTag().equals(on)) {
             button.setTag(on);
