@@ -102,14 +102,14 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
 
         Button languageButton = new Button(this);
-        languageButton.setTextSize(12);
+        languageButton.setTextSize(16);
         languageButton.setTextColor(TEXT);
         languageButton.setAllCaps(false);
         languageButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         languageButton.setPadding(dp(12), dp(6), dp(12), dp(6));
         setRipple(languageButton, rounded(0x00000000, STROKE));
         languageButton.setContentDescription(getString(R.string.language_switch));
-        languageButton.setText(currentLanguage().equals("de") ? "EN" : "DE");
+        languageButton.setText(currentLanguage().equals("de") ? "🇩🇪" : "🇬🇧");
         languageButton.setOnClickListener(v -> toggleLanguage());
         LinearLayout.LayoutParams langLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
