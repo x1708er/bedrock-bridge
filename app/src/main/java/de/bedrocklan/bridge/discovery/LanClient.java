@@ -282,6 +282,7 @@ public final class LanClient {
                     return;
                 }
                 if (message == null || !open) return;
+                lastSeen = System.currentTimeMillis();
                 try {
                     host.onMessage(LanClient.this, message);
                 } catch (Throwable e) {
@@ -294,6 +295,7 @@ public final class LanClient {
     /** Nachricht an das Gerät senden (nur Reliable, wie vom Spiel empfohlen). */
     public void sendMessage(byte[] message) {
         if (closed || !open) return;
+        lastSeen = System.currentTimeMillis();
         try {
             Framer.send(reliable, message);
         } catch (Throwable e) {
