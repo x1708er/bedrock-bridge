@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.10 – 2026-11-14
+
+### Fixed
+- LAN clients without Xbox sign-in are accepted again; the bridge always advertises self-signed auth because it rewrites the login itself.
+
 ## 0.0.9 – 2026-11-14
 
 ### Fixed
