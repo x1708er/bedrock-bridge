@@ -72,7 +72,8 @@ online sein. Das ist das Maximum, das das Protokoll zulässt.
 
 ## Selbst bauen
 
-Einfach forken — jeder Push baut unter **Actions** ein signiertes Release-APK
+Einfach forken — unter **Actions** den Workflow **„APK bauen“** per Hand starten
+(**„Run workflow“**), das erzeugt ein signiertes Release-APK
 (Signaturschlüssel in den Repo-Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
 `KEYSTORE_ALIAS`, `KEYSTORE_KEY_PASSWORD`).
 

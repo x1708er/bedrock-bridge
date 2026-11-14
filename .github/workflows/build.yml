@@ -1,6 +1,5 @@
 name: APK bauen
 on:
-  push:
   workflow_dispatch:
 jobs:
   build:
