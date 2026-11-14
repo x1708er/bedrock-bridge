@@ -51,6 +51,8 @@ public class MainActivity extends Activity {
     private TextView serverName;
     private TextView serverMeta;
     private LinearLayout serverCard;
+    private LinearLayout favCard;
+    private LinearLayout favList;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override
@@ -123,7 +125,26 @@ public class MainActivity extends Activity {
         bp.topMargin = dp(12);
         inputCard.addView(button, bp);
 
+        TextView favAdd = new TextView(this);
+        favAdd.setText("★ Diese Adresse zu Favoriten");
+        favAdd.setTextSize(13);
+        favAdd.setTextColor(LINK);
+        favAdd.setPadding(dp(2), dp(12), dp(2), 0);
+        favAdd.setOnClickListener(v -> addFavorite());
+        inputCard.addView(favAdd);
+
         root.addView(inputCard, cardLp());
+
+        favCard = card();
+        TextView favTitle = new TextView(this);
+        favTitle.setText("Favoriten");
+        favTitle.setTextSize(13);
+        favTitle.setTextColor(MUTED);
+        favCard.addView(favTitle);
+        favList = new LinearLayout(this);
+        favList.setOrientation(LinearLayout.VERTICAL);
+        favCard.addView(favList);
+        root.addView(favCard, cardLp());
 
         status = new TextView(this);
         status.setTextSize(15);
@@ -214,6 +235,7 @@ public class MainActivity extends Activity {
         }
         updateAccountUi();
         updateUi();
+        renderFavorites();
         checkForUpdate();
 
         if (Build.VERSION.SDK_INT >= 33
@@ -272,6 +294,8 @@ public class MainActivity extends Activity {
         }
         input.setEnabled(!on);
         input.setAlpha(on ? 0.6f : 1f);
+        accountButton.setEnabled(!on);
+        accountButton.setAlpha(on ? 0.6f : 1f);
         if (localError != null) {
             status.setText(localError);
             status.setTextColor(0xFFFF7B72);
@@ -303,13 +327,51 @@ public class MainActivity extends Activity {
     }
 
     private void onAccountButton() {
-        if (account.isSignedIn()) {
-            account.signOut();
-            updateAccountUi();
+        if (State.running) {
+            android.widget.Toast.makeText(this,
+                    "Zum Wechseln erst die Brücke stoppen.", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
+        java.util.List<AccountManager.Account> accounts = account.accounts();
+        if (accounts.isEmpty()) {
+            startSignIn();
+            return;
+        }
+        String active = account.activeId();
+        int checked = 0;
+        for (int i = 0; i < accounts.size(); i++) {
+            if (accounts.get(i).id.equals(active)) {
+                checked = i;
+                break;
+            }
+        }
+        String[] names = new String[accounts.size()];
+        for (int i = 0; i < accounts.size(); i++) {
+            String gtg = accounts.get(i).gamertag;
+            names[i] = accounts.get(i).id.equals(active) ? "● " + gtg : "○ " + gtg;
+        }
+        final int[] sel = {checked};
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Microsoft-Konten")
+                .setSingleChoiceItems(names, checked, (d, which) -> sel[0] = which)
+                .setPositiveButton("Wechseln", (d, w) -> {
+                    if (!accounts.get(sel[0]).id.equals(active)) {
+                        account.setActive(accounts.get(sel[0]).id);
+                    }
+                    updateAccountUi();
+                })
+                .setNeutralButton("Hinzufügen", (d, w) -> startSignIn())
+                .setNegativeButton("Entfernen", (d, w) -> {
+                    account.remove(accounts.get(sel[0]).id);
+                    updateAccountUi();
+                })
+                .show();
+    }
+
+    private void startSignIn() {
         accountButton.setEnabled(false);
-        accountButton.setText("Anmeldung läuft …");
+        accountStatus.setTextColor(MUTED);
+        accountStatus.setText("Anmeldung läuft …");
         account.signIn(new AccountManager.SignInCallback() {
             @Override
             public void onCode(String userCode, String url) {
@@ -321,7 +383,6 @@ public class MainActivity extends Activity {
             @Override
             public void onDone(String gamertag, String error) {
                 handler.post(() -> {
-                    accountButton.setEnabled(true);
                     updateAccountUi();
                     if (gamertag == null) {
                         accountStatus.setTextColor(0xFFFF7B72);
@@ -334,12 +395,22 @@ public class MainActivity extends Activity {
 
     private void updateAccountUi() {
         boolean in = account.isSignedIn();
-        accountButton.setText(in ? "Abmelden" : "Mit Microsoft-Konto anmelden");
-        accountStatus.setTextColor(in ? TEXT : MUTED);
+        String tag = account.gamertag();
+        int count = account.accounts().size();
+        accountButton.setEnabled(!State.running);
+        accountButton.setAlpha(State.running ? 0.6f : 1f);
         if (in) {
-            String tag = account.gamertag();
-            accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto"));
+            accountButton.setText(count > 1 ? tag + " ▾" : tag != null ? tag : "Konto");
+            accountStatus.setTextColor(TEXT);
+            accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto")
+                    + (count > 1 ? " · " + count + " Konten gespeichert, tippen zum Wechseln" : ""));
+        } else if (count > 0) {
+            accountButton.setText("Konto wählen ▾");
+            accountStatus.setTextColor(MUTED);
+            accountStatus.setText(count + " Konto(s) gespeichert – tippen zum Auswählen.");
         } else {
+            accountButton.setText("Mit Microsoft-Konto anmelden");
+            accountStatus.setTextColor(MUTED);
             accountStatus.setText("Nicht angemeldet. Für Online-Server nötig "
                     + "(Signaling-Identität von Mojang).");
         }
@@ -444,6 +515,106 @@ public class MainActivity extends Activity {
         }
         if (host.isEmpty() || port < 1 || port > 65535) return null;
         return new Object[]{host, port};
+    }
+
+    // ------------------------------------------------------------------ Favoriten
+
+    private java.util.List<String> loadFavorites() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(
+                    getSharedPreferences("servers", MODE_PRIVATE).getString("list", "[]"));
+            for (int i = 0; i < a.length(); i++) out.add(a.getString(i));
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private void saveFavorites(java.util.List<String> list) {
+        getSharedPreferences("servers", MODE_PRIVATE).edit()
+                .putString("list", new org.json.JSONArray(list).toString()).apply();
+    }
+
+    private void renderFavorites() {
+        favList.removeAllViews();
+        java.util.List<String> favs = loadFavorites();
+        favCard.setVisibility(favs.isEmpty() ? View.GONE : View.VISIBLE);
+        for (int i = 0; i < favs.size(); i++) {
+            final String addr = favs.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(dp(4), dp(10), dp(4), dp(10));
+            setRipple(row, rounded(0, 0));
+            TextView name = new TextView(this);
+            name.setText(addr);
+            name.setTextSize(14);
+            name.setTextColor(TEXT);
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            row.addView(name, np);
+            TextView del = new TextView(this);
+            del.setText("Entfernen");
+            del.setTextSize(13);
+            del.setTextColor(LINK);
+            LinearLayout.LayoutParams dp2 = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dp2.leftMargin = dp(12);
+            row.addView(del, dp2);
+            row.setOnClickListener(v -> {
+                input.setText(addr);
+                input.setSelection(input.getText().length());
+            });
+            del.setOnClickListener(v -> confirmRemoveFavorite(addr));
+            favList.addView(row);
+            if (i < favs.size() - 1) {
+                View sep = new View(this);
+                sep.setBackgroundColor(STROKE);
+                LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+                favList.addView(sp);
+            }
+        }
+    }
+
+    private void addFavorite() {
+        String addr = input.getText().toString().trim();
+        if (addr.isEmpty()) {
+            toast("Erst eine Serveradresse eingeben.");
+            return;
+        }
+        if (parse(addr) == null) {
+            toast("Das ist keine gültige Adresse.");
+            return;
+        }
+        java.util.List<String> favs = loadFavorites();
+        if (favs.contains(addr)) {
+            toast("Diese Adresse ist schon in den Favoriten.");
+            return;
+        }
+        favs.add(addr);
+        saveFavorites(favs);
+        renderFavorites();
+        toast("Zu Favoriten hinzugefügt.");
+    }
+
+    private void confirmRemoveFavorite(String addr) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Favorit entfernen")
+                .setMessage("„" + addr + "“ aus den Favoriten löschen?")
+                .setPositiveButton("Entfernen", (d, w) -> {
+                    java.util.List<String> favs = loadFavorites();
+                    favs.remove(addr);
+                    saveFavorites(favs);
+                    renderFavorites();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
+    }
+
+    private void toast(String s) {
+        android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int v) {

@@ -17,7 +17,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 import de.bedrocklan.bridge.Guard;
@@ -30,6 +32,9 @@ import de.bedrocklan.bridge.Guard;
  *
  * Endpunkte live-verifiziert laut gophertunnel/go-xsapi/go-playfab,
  * prismarine-auth und acacia-auth (docs/auth.md).
+ *
+ * Speicher: SharedPreferences "accounts" mit mehreren Konten und einem
+ * aktiven; ein einmal angemeldetes Einzelkonto wird einmalig migriert.
  */
 public final class AccountManager {
     private static final String CLIENT_ID = "00000000403fc600";
@@ -52,11 +57,24 @@ public final class AccountManager {
         void onDone(String gamertag, String error);
     }
 
-    private final SharedPreferences prefs;
+    /** Ein gespeichertes Microsoft-Konto. */
+    public static final class Account {
+        public final String id;
+        public final String gamertag;
+        public final String xuid;
+
+        Account(String id, String gamertag, String xuid) {
+            this.id = id;
+            this.gamertag = gamertag;
+            this.xuid = xuid;
+        }
+    }
+
+    private final SharedPreferences store;
     private volatile boolean signingIn;
     private volatile boolean cancelSignIn;
 
-    // Laufzeit-Cache
+    // Laufzeit-Cache (pro aktives Konto, bei Wechsel zu leeren)
     private String playfabTicket;
     private long playfabValidUntil;
     private String mcTokenHeader;
@@ -66,21 +84,119 @@ public final class AccountManager {
     private long signedTokenValidUntil;
 
     public AccountManager(Context ctx) {
-        this.prefs = ctx.getApplicationContext()
-                .getSharedPreferences("account", Context.MODE_PRIVATE);
+        Context app = ctx.getApplicationContext();
+        this.store = app.getSharedPreferences("accounts", Context.MODE_PRIVATE);
+        migrateLegacy(app.getSharedPreferences("account", Context.MODE_PRIVATE));
+    }
+
+    /** Übernimmt einmalig ein Konto aus dem alten Einfeld-Speicher. */
+    private synchronized void migrateLegacy(SharedPreferences legacy) {
+        if (store.getBoolean("migrated", false)) return;
+        SharedPreferences.Editor e = store.edit().putBoolean("migrated", true);
+        String deviceId = legacy.getString("device_id", null);
+        if (deviceId != null) e.putString("device_id", deviceId);
+        String refresh = legacy.getString("msa_refresh_token", null);
+        if (refresh != null) {
+            String id = legacy.getString("xuid", null);
+            if (id == null || id.isEmpty()) id = UUID.randomUUID().toString();
+            e.putString("acct_" + id + "_refresh", refresh);
+            String gtg = legacy.getString("gamertag", null);
+            if (gtg != null) e.putString("acct_" + id + "_gtg", gtg);
+            String xuid = legacy.getString("xuid", null);
+            if (xuid != null) e.putString("acct_" + id + "_xuid", xuid);
+            List<String> ids = new ArrayList<>();
+            ids.add(id);
+            e.putString("ids", new JSONArray(ids).toString());
+            e.putString("active", id);
+        }
+        e.commit();
+        legacy.edit().clear().apply();
+    }
+
+    // ---------------------------------------------------------------- Kontenverwaltung
+
+    private List<String> ids() {
+        List<String> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(store.getString("ids", "[]"));
+            for (int i = 0; i < a.length(); i++) out.add(a.getString(i));
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private void saveIds(List<String> ids) {
+        store.edit().putString("ids", new JSONArray(ids).toString()).apply();
+    }
+
+    /** Alle gespeicherten Konten, aktives zuerst. */
+    public List<Account> accounts() {
+        List<Account> out = new ArrayList<>();
+        String active = activeId();
+        List<String> ids = ids();
+        for (String id : ids) {
+            if (!store.contains("acct_" + id + "_refresh")) continue;
+            String gtg = store.getString("acct_" + id + "_gtg", null);
+            out.add(new Account(id, gtg != null ? gtg : "Konto",
+                    store.getString("acct_" + id + "_xuid", null)));
+        }
+        out.sort((a, b) -> {
+            if (a.id.equals(active)) return -1;
+            if (b.id.equals(active)) return 1;
+            return 0;
+        });
+        return out;
+    }
+
+    public String activeId() {
+        String id = store.getString("active", null);
+        if (id != null && store.contains("acct_" + id + "_refresh")) return id;
+        List<String> ids = ids();
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /** Aktives Konto wechseln (Token-Caches werden geleert). */
+    public synchronized void setActive(String id) {
+        if (!store.contains("acct_" + id + "_refresh")) return;
+        clearCaches();
+        store.edit().putString("active", id).apply();
+    }
+
+    /** Ein Konto aus dem Speicher löschen. */
+    public synchronized void remove(String id) {
+        List<String> ids = ids();
+        ids.remove(id);
+        SharedPreferences.Editor e = store.edit()
+                .remove("acct_" + id + "_refresh")
+                .remove("acct_" + id + "_gtg")
+                .remove("acct_" + id + "_xuid")
+                .putString("ids", new JSONArray(ids).toString());
+        if (id.equals(store.getString("active", null))) {
+            e.putString("active", ids.isEmpty() ? null : ids.get(0));
+        }
+        e.apply();
+        clearCaches();
     }
 
     public boolean isSignedIn() {
-        return prefs.contains("msa_refresh_token");
+        return activeId() != null;
     }
 
     public String gamertag() {
-        return prefs.getString("gamertag", null);
+        String id = activeId();
+        if (id == null) return null;
+        String gtg = store.getString("acct_" + id + "_gtg", null);
+        return gtg != null ? gtg : "Konto";
     }
 
+    /** Entfernt das aktive Konto. */
     public void signOut() {
         cancelSignIn = true;
-        prefs.edit().clear().apply();
+        String id = activeId();
+        if (id != null) remove(id);
+    }
+
+    private void clearCaches() {
         synchronized (this) {
             playfabTicket = null;
             mcTokenHeader = null;
@@ -88,7 +204,7 @@ public final class AccountManager {
         }
     }
 
-    /** Startet den Device-Code-Login im Hintergrund. */
+    /** Startet den Device-Code-Login im Hintergrund (fügt ein neues Konto hinzu). */
     public synchronized void signIn(final SignInCallback cb) {
         if (signingIn) return;
         signingIn = true;
@@ -135,7 +251,15 @@ public final class AccountManager {
                     JSONObject token = parse(resp);
                     String refresh = token.optString("refresh_token", "");
                     if (refresh.isEmpty()) throw new IOException("kein Refresh-Token erhalten");
-                    prefs.edit().putString("msa_refresh_token", refresh).apply();
+                    String id = UUID.randomUUID().toString();
+                    List<String> ids = ids();
+                    ids.add(id);
+                    clearCaches();
+                    store.edit()
+                            .putString("acct_" + id + "_refresh", refresh)
+                            .putString("ids", new JSONArray(ids).toString())
+                            .putString("active", id)
+                            .apply();
                     try {
                         completeProfile();
                     } catch (Exception ignored) {
@@ -168,14 +292,18 @@ public final class AccountManager {
         JSONObject xui = xsts.getJSONObject("DisplayClaims").getJSONArray("xui").getJSONObject(0);
         String xuid = xui.optString("xid", "");
         String gtg = xui.optString("gtg", "");
-        SharedPreferences.Editor e = prefs.edit().putString("xuid", xuid);
-        if (!gtg.isEmpty()) e.putString("gamertag", gtg);
+        String id = activeId();
+        if (id == null) return;
+        SharedPreferences.Editor e = store.edit().putString("acct_" + id + "_xuid", xuid);
+        if (!gtg.isEmpty()) e.putString("acct_" + id + "_gtg", gtg);
         e.apply();
     }
 
-    /** Liefert einen frischen MSA-Access-Token (Refresh-Token-Flow). */
+    /** Liefert einen frischen MSA-Access-Token (Refresh-Token-Flow) des aktiven Kontos. */
     private synchronized String msaAccessToken() throws IOException {
-        String refresh = prefs.getString("msa_refresh_token", null);
+        String id = activeId();
+        if (id == null) throw new IOException("nicht angemeldet");
+        String refresh = store.getString("acct_" + id + "_refresh", null);
         if (refresh == null) throw new IOException("nicht angemeldet");
         String resp = httpForm(LIVE_TOKEN,
                 "client_id=" + CLIENT_ID
@@ -187,7 +315,7 @@ public final class AccountManager {
             String access = token.getString("access_token");
             String newRefresh = token.optString("refresh_token", "");
             if (!newRefresh.isEmpty()) {
-                prefs.edit().putString("msa_refresh_token", newRefresh).apply();
+                store.edit().putString("acct_" + id + "_refresh", newRefresh).apply();
             }
             return access;
         } catch (JSONException e) {
@@ -346,10 +474,10 @@ public final class AccountManager {
     }
 
     private String deviceId() {
-        String id = prefs.getString("device_id", null);
+        String id = store.getString("device_id", null);
         if (id == null) {
             id = UUID.randomUUID().toString();
-            prefs.edit().putString("device_id", id).apply();
+            store.edit().putString("device_id", id).apply();
         }
         return id;
     }
