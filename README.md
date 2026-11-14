@@ -40,7 +40,10 @@ Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einste
 4. **Starten** tippen.
 5. In Minecraft in der Freundes-/LAN-Liste den Server auswählen. Fertig.
 
-> **Hinweis:** Die App muss laufen bleiben, solange gespielt wird.
+> **Hinweis:** Die App muss laufen bleiben, solange gespielt wird. Viele Handy-Hersteller
+> (Samsung, Xiaomi, Huawei, …) killen Apps im Hintergrund „zum Stromsparen“ — die Verbindung
+> bricht dann mitten im Spiel ab. Anleitung für dein Gerät:
+> [dontkillmyapp.com](https://dontkillmyapp.com)
 
 ## Voraussetzungen
 
