@@ -63,16 +63,6 @@ public class MainActivity extends Activity {
 
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        if (Build.VERSION.SDK_INT >= 30) {
-            getWindow().getInsetsController().setSystemBarsAppearance(
-                    0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
-        } else {
-            View decor = getWindow().getDecorView();
-            decor.setSystemUiVisibility(decor.getSystemUiVisibility()
-                    & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                    & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        }
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -190,6 +180,16 @@ public class MainActivity extends Activity {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(root);
         setContentView(scroll);
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().getInsetsController().setSystemBarsAppearance(
+                    0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        } else {
+            View decor = getWindow().getDecorView();
+            decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                    & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
         updateAccountUi();
         updateUi();
         checkForUpdate();
