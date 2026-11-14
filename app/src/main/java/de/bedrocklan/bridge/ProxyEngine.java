@@ -8,9 +8,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
-import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
 
 import de.bedrocklan.bridge.bedrock.BedrockBridge;
 import de.bedrocklan.bridge.discovery.Discovery;
@@ -20,24 +18,33 @@ import de.bedrocklan.bridge.nethernet.NetherNetClient;
 /**
  * Lässt einen entfernten Bedrock-Server im LAN erscheinen — komplett ohne RakNet:
  * - LAN-Discovery auf UDP 7551 (verschlüsselte NetherNet-Broadcasts)
- * - Geräte (PC/Konsole) verbinden sich per WebRTC über Discovery-Signaling
- * - Pro Gerät wird ein eigener NetherNet-Upstream (WebRTC) zum echten Server
- *   aufgebaut und 1:1 durchgebrückt
+ * - Das Gerät verbindet sich per WebRTC über Discovery-Signaling
+ * - Ein NetherNet-Upstream (WebRTC) zum echten Server wird 1:1 durchgebrückt
+ *
+ * Designentscheidung: genau EIN verbundenes Gerät. Ein zweiter
+ * Verbindungswunsch wird mit CONNECTERROR abgelehnt; nur ein Rejoin
+ * desselben Geräts (gleiche connId vom selben Absender) wird nach
+ * sauberem Aufräumen akzeptiert.
  */
 final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     private static final long IDLE_MS = 120_000;
+    private static final long CONNECT_DEADLINE_MS = 30_000;
 
     private final Context appContext;
     private final String host;
     private final int port;
     private final long networkId = new Random().nextLong();
 
-    private final Map<Long, LanClient> clients = new ConcurrentHashMap<>();       // connId → Gerät
-    private final Map<Long, BedrockBridge> bridges = new ConcurrentHashMap<>();    // connId → Bridge
-    private final Map<Long, InetSocketAddress> peers = new ConcurrentHashMap<>(); // Geräte-Netz-ID → Adresse
+    // Aktive Verbindung: client bis zum Ende (auch parallel zur Bridge), bridge ab onOpen.
+    private final Object connLock = new Object();
+    private LanClient client;
+    private BedrockBridge bridge;
+    private InetSocketAddress peerAddress; // pro Verbindung gepinnte Signaling-Adresse
+    private long peerId = -1;
+    private long clientCreatedAt;
 
     private volatile boolean running;
-    private volatile String problem = "Starte …";
+    private volatile String problem;
     private DatagramSocket socket;
     private PeerConnectionFactory factory;
     private NetherNetClient upstreamStatus;
@@ -66,17 +73,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         } catch (Throwable e) {
             Guard.logError("Identitätsschlüssel fehlgeschlagen", e);
         }
-        if (account.isSignedIn()) {
-            // Token-Vorbereitung im Hintergrund, damit der erste Join schnell ist.
-            Thread t = new Thread(() -> {
-                try {
-                    if (identity != null) account.multiplayerToken(identity.publicKey());
-                } catch (Exception e) {
-                    Guard.logError("Token-Vorbereitung fehlgeschlagen", e);
-                }
-            }, "token-prewarm");
-            t.setDaemon(true);
-            t.start();
+        if (identity != null) {
+            account.prewarm(identity.publicKey());
         }
 
         DatagramSocket s = new DatagramSocket(null);
@@ -85,6 +83,7 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         s.bind(new InetSocketAddress(Discovery.PORT));
         socket = s;
         running = true;
+        problem = appContext.getString(R.string.status_starting);
         spawn(this::statusLoop, "status");
         spawn(this::mainLoop, "main");
         spawn(this::cleanupLoop, "cleanup");
@@ -92,11 +91,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
 
     void stop() {
         running = false;
+        synchronized (connLock) {
+            teardownLocked("beendet");
+        }
         close(socket);
-        for (BedrockBridge b : bridges.values()) b.close("beendet");
-        bridges.clear();
-        clients.clear();
-        peers.clear();
         final org.webrtc.PeerConnectionFactory f = factory;
         factory = null;
         if (f != null) Guard.closeLater(f::dispose);
@@ -122,8 +120,16 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                 if (pk.id == Discovery.ID_REQUEST) {
                     respond(from);
                 } else if (pk.id == Discovery.ID_MESSAGE && pk.recipientId == networkId) {
-                    peers.put(pk.senderId, from);
-                    handleSignal(pk.senderId, pk.messageData);
+                    long activePeer;
+                    synchronized (connLock) {
+                        activePeer = peerId;
+                        if (activePeer == pk.senderId && peerAddress != null) {
+                            peerAddress = from;
+                        }
+                    }
+                    if (activePeer == pk.senderId) {
+                        handleSignal(pk.senderId, from, pk.messageData);
+                    }
                 }
             } catch (IOException e) {
                 if (!running) return;
@@ -143,10 +149,10 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         Guard.log("Discovery-Anfrage beantwortet an " + to);
     }
 
-    private void handleSignal(long senderId, String data) {
+    private void handleSignal(long senderId, InetSocketAddress from, String data) {
         String[] parts = data.split(" ", 3);
         if (parts.length != 3) {
-            Guard.log("Signal mit " + parts.length + " Teilen: \"" + abbrev(data) + "\"");
+            Guard.log("Unverständliches Signal (" + parts.length + " Teilen)");
             return;
         }
         String type = parts[0];
@@ -158,32 +164,92 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         }
         switch (type) {
             case "CONNECTREQUEST": {
-                LanClient existing = clients.get(connId);
-                if (existing == null) {
-                    Guard.log("Verbindungswunsch von Gerät " + Long.toUnsignedString(senderId)
-                            + " (Verbindung " + Long.toUnsignedString(connId) + ")"
-                            + " Offer " + parts[2].length() + " Bytes: \"" + abbrev(parts[2]) + "\"");
-                    LanClient client = new LanClient(factory, this, connId, senderId);
-                    clients.put(connId, client);
-                    client.handleOffer(parts[2]);
+                // Annahme-Entscheidung und Zuweisung unter connLock; die native
+                // WebRTC-Arbeit (handleOffer) läuft danach außerhalb des Locks.
+                // Das ist sicher, weil handleSignal ausschließlich vom mainLoop-
+                // Thread aufgerufen wird (Signaling ist damit serialisiert) und
+                // kein anderer connLock-Nutzer den frisch angelegten LanClient
+                // vor dem Offer sichtbar zerlegen kann (Timeouts greifen erst
+                // nach CONNECT_DEADLINE_MS, native Callbacks gibt es vor dem
+                // Offer noch nicht).
+                LanClient newClient = null;
+                synchronized (connLock) {
+                    if (client != null || bridge != null) {
+                        if (senderId == peerId) {
+                            // Rejoin desselben Geräts (auch mit neuer connId):
+                            // alte Verbindung sauber aufräumen, dann annehmen.
+                            teardownLocked("Neuverbindung des Geräts");
+                            newClient = acceptLocked(senderId, connId, from);
+                        } else {
+                            Guard.log("Weiteres Gerät abgelehnt (bereits verbunden)");
+                            setJoinProblem("Weiteres Gerät abgelehnt: bereits ein Gerät verbunden.");
+                        }
+                    } else {
+                        newClient = acceptLocked(senderId, connId, from);
+                    }
                 }
+                if (newClient != null) {
+                    newClient.handleOffer(parts[2]);
+                } else {
+                    String signal = "CONNECTERROR " + Long.toUnsignedString(connId)
+                            + " bereits ein Gerät verbunden";
+                    send(from, Discovery.marshalMessage(networkId, senderId, signal));
+                }
+                publishStatus();
                 break;
             }
             case "CANDIDATEADD": {
-                LanClient client = clients.get(connId);
-                if (client != null) client.addCandidate(parts[2]);
+                LanClient c;
+                synchronized (connLock) {
+                    c = senderId == peerId ? client : null;
+                    if (c != null && c.connectionId() != connId) c = null;
+                }
+                if (c != null) c.addCandidate(parts[2]); // native Arbeit außerhalb connLock
                 break;
             }
             case "CONNECTERROR": {
-                LanClient client = clients.remove(connId);
-                BedrockBridge bridge = bridges.remove(connId);
-                if (bridge != null) bridge.close("Gerät: CONNECTERROR");
-                else if (client != null) client.close("CONNECTERROR", false);
+                synchronized (connLock) {
+                    if (senderId == peerId && (client != null || bridge != null)
+                            && connId == activeConnIdLocked()) {
+                        teardownLocked("Gerät: CONNECTERROR");
+                    }
+                }
+                publishStatus();
                 break;
             }
             default:
                 break;
         }
+    }
+
+    private long activeConnIdLocked() {
+        if (client != null) return client.connectionId();
+        if (bridge != null) return bridge.client().connectionId();
+        return -1;
+    }
+
+    /** Legt den LanClient für einen angenommenen Verbindungswunsch an (nur unter connLock). */
+    private LanClient acceptLocked(long senderId, long connId, InetSocketAddress from) {
+        Guard.log("Verbindungswunsch von Gerät " + Long.toUnsignedString(senderId)
+                + " (Verbindung " + Long.toUnsignedString(connId)
+                + "), Offer wartet");
+        client = new LanClient(factory, this, connId, senderId);
+        peerAddress = from;
+        peerId = senderId;
+        clientCreatedAt = System.currentTimeMillis();
+        return client;
+    }
+
+    /** Räumt die aktive Verbindung komplett auf (nur unter connLock). */
+    private void teardownLocked(String reason) {
+        LanClient c = client;
+        BedrockBridge b = bridge;
+        client = null;
+        bridge = null;
+        peerAddress = null;
+        peerId = -1;
+        if (b != null) b.close(reason);
+        else if (c != null) c.close(reason, false);
     }
 
     private void statusLoop() {
@@ -196,15 +262,15 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                             serverData.playerCount, serverData.maxPlayerCount, d(serverData.version));
                     problem = null;
                 } else {
-                    problem = "Server bietet kein NetherNet an (HTTP-Endpunkt fehlt).";
+                    problem = appContext.getString(R.string.status_no_nethernet);
                 }
             } catch (IOException e) {
                 if (!running) return;
-                problem = "Server antwortet nicht. Adresse und Port prüfen.";
+                problem = appContext.getString(R.string.status_unreachable);
             } catch (Throwable e) {
                 if (!running) return;
                 Guard.logError("Status-Abruf", e);
-                problem = "Serverstatus-Fehler.";
+                problem = appContext.getString(R.string.status_probe_error);
             }
             publishStatus();
             if (!sleep(5000)) return;
@@ -240,7 +306,20 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         while (running) {
             if (!sleep(5000)) return;
             try {
-                for (LanClient c : clients.values()) c.tick(IDLE_MS);
+                long now = System.currentTimeMillis();
+                LanClient c;
+                boolean expired = false;
+                synchronized (connLock) {
+                    c = client;
+                    if (c != null && !c.isOpen() && now - clientCreatedAt > CONNECT_DEADLINE_MS) {
+                        expired = true;
+                        teardownLocked("Verbindungsaufbau vom Gerät nicht abgeschlossen");
+                    }
+                }
+                if (expired) {
+                    setJoinProblem("Gerät hat die Verbindung nicht fertig aufgebaut (Timeout).");
+                }
+                if (c != null && c.isOpen()) c.tick(IDLE_MS);
             } catch (Throwable e) {
                 Guard.logError("Aufräumen", e);
             }
@@ -248,25 +327,40 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         }
     }
 
+    private void setJoinProblem(String reason) {
+        joinProblem = reason;
+        joinProblemAt = System.currentTimeMillis();
+    }
+
     // ------------------------------------------------------------- LanClient.Host
 
     @Override
-    public void sendSignal(LanClient client, String type, String data) {
-        InetSocketAddress to = peers.get(client.peerNetworkId());
+    public void sendSignal(LanClient from, String type, String data) {
+        InetSocketAddress to;
+        synchronized (connLock) {
+            if (client != from) return;
+            to = peerAddress;
+        }
         if (to == null) return;
-        String signal = type + " " + Long.toUnsignedString(client.connectionId()) + " " + data;
-        byte[] out = Discovery.marshalMessage(networkId, client.peerNetworkId(), signal);
+        String signal = type + " " + Long.toUnsignedString(from.connectionId()) + " " + data;
+        byte[] out = Discovery.marshalMessage(networkId, from.peerNetworkId(), signal);
         send(to, out);
     }
 
     @Override
-    public void onOpen(LanClient client) {
+    public void onOpen(LanClient opened) {
         if (!running) return;
         try {
             Guard.log("Gerät verbunden, verbinde zum Server …");
-            BedrockBridge bridge = new BedrockBridge(factory, client, host, port, identity, account, this);
-            bridges.put(client.connectionId(), bridge);
-            bridge.start();
+            BedrockBridge b = new BedrockBridge(factory, opened, upstreamStatus, identity, account, this);
+            synchronized (connLock) {
+                if (client != opened || bridge != null) {
+                    b.close("Verbindung wurde ersetzt");
+                    return;
+                }
+                bridge = b;
+            }
+            b.start();
         } catch (Throwable e) {
             Guard.logError("Brückenstart", e);
         }
@@ -274,35 +368,51 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
     }
 
     @Override
-    public void onMessage(LanClient client, byte[] message) {
+    public void onMessage(LanClient from, byte[] message) {
         try {
-            BedrockBridge bridge = bridges.get(client.connectionId());
-            if (bridge != null) bridge.fromClient(message);
+            BedrockBridge b;
+            synchronized (connLock) {
+                b = (client == from) ? bridge : null;
+            }
+            if (b != null) b.fromClient(message);
         } catch (Throwable e) {
             Guard.logError("Weiterleitung zum Server", e);
         }
     }
 
     @Override
-    public void onClosed(LanClient client, String reason) {
+    public void onClosed(LanClient closed, String reason) {
         Guard.log("Gerät getrennt: " + reason);
-        clients.remove(client.connectionId());
-        BedrockBridge bridge = bridges.get(client.connectionId());
-        if (bridge != null) {
-            bridge.close("Gerät: " + reason);
+        BedrockBridge b = null;
+        synchronized (connLock) {
+            if (client == closed) {
+                client = null;
+                b = bridge;
+                if (b != null) bridge = null;
+            }
         }
+        if (b != null) b.close("Gerät: " + reason);
         publishStatus();
     }
 
     // ------------------------------------------------------------- BedrockBridge.Listener
 
     @Override
-    public void onBridgeClosed(BedrockBridge bridge, String reason) {
-        clients.remove(bridge.client().connectionId());
-        bridges.remove(bridge.client().connectionId());
-        if (!bridge.isReady() && reason != null && !reason.contains("beendet")) {
-            joinProblem = reason;
-            joinProblemAt = System.currentTimeMillis();
+    public void onBridgeClosed(BedrockBridge closed, String reason) {
+        boolean wasActive;
+        synchronized (connLock) {
+            wasActive = bridge == closed || client == closed.client();
+            if (bridge == closed) {
+                bridge = null;
+            }
+            if (client == closed.client()) {
+                client = null;
+                peerAddress = null;
+                peerId = -1;
+            }
+        }
+        if (wasActive && !closed.isReady() && reason != null && !reason.contains("beendet")) {
+            setJoinProblem(reason);
         }
         publishStatus();
     }
@@ -311,7 +421,12 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
 
     private void publishStatus() {
         if (!running) return;
-        int n = bridges.size();
+        int n;
+        boolean playing;
+        synchronized (connLock) {
+            n = bridge != null ? 1 : 0;
+            playing = bridge != null && bridge.isReady();
+        }
         State.clients = n;
         String p = problem;
         if (joinProblem != null && System.currentTimeMillis() - joinProblemAt < 30_000) {
@@ -321,24 +436,12 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         if (p != null) {
             State.status = p;
         } else if (n > 0) {
-            boolean playing = false;
-            for (BedrockBridge b : bridges.values()) {
-                if (b.isReady()) {
-                    playing = true;
-                    break;
-                }
-            }
             State.status = playing
-                    ? "Läuft. Gerät ist verbunden und spielt."
-                    : "Läuft. Gerät verbunden, Verbindung zum Server läuft.";
+                    ? appContext.getString(R.string.status_active)
+                    : appContext.getString(R.string.status_linked);
         } else {
-            State.status = "Läuft. Server via NetherNet erreichbar. Jetzt Minecraft öffnen und in den LAN-Spielen wählen.";
+            State.status = appContext.getString(R.string.status_idle);
         }
-    }
-
-    private static String abbrev(String s) {
-        String t = s.replace("\r", "\\r").replace("\n", "\\n");
-        return t.length() <= 160 ? t : t.substring(0, 160) + "…";
     }
 
     private void send(InetSocketAddress to, byte[] data) {

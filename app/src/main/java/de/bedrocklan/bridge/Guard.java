@@ -19,6 +19,8 @@ import java.util.concurrent.Executors;
  */
 public final class Guard {
     private static final String TAG = "BedrockLanBruecke";
+    private static final long MAX_LOG_BYTES = 256 * 1024;
+    private static volatile boolean installed;
     private static final ExecutorService CLOSER = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "webrtc-closer");
         t.setDaemon(true);
@@ -28,6 +30,8 @@ public final class Guard {
     private Guard() {}
 
     public static void install(final Context c) {
+        if (installed) return;
+        installed = true;
         final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             logError("Ungefangener Fehler in Thread " + t.getName(), e);
@@ -43,7 +47,9 @@ public final class Guard {
         try {
             File dir = c.getExternalFilesDir(null);
             if (dir == null) dir = c.getFilesDir();
-            FileWriter w = new FileWriter(new File(dir, "crash.log"), true);
+            File log = new File(dir, "crash.log");
+            Diagnostics.rotate(log, MAX_LOG_BYTES);
+            FileWriter w = new FileWriter(log, true);
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
             w.write(time + " [" + t.getName() + "] " + Log.getStackTraceString(e) + "\n\n");
             w.close();

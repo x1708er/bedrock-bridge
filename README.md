@@ -39,6 +39,13 @@ the source code is right here. In the dialog choose **"More details" → "Instal
 If that button is missing: Play Store → Profile → Play Protect → Settings →
 temporarily disable "Scan apps", install, re-enable.
 
+## Privacy
+
+- No ads, no tracking, no analytics.
+- The update check only queries the GitHub API; no user data is transmitted.
+- Microsoft sign-in stores only the refresh token locally on the device.
+- Diagnostics and crash data stay local and are only shared if you export them yourself.
+
 ## How to use
 
 1. Install and open the app.
@@ -56,7 +63,7 @@ temporarily disable "Scan apps", install, re-enable.
 
 - Android phone with **Android 8.0** or newer
 - Minecraft on console (Switch is **not** supported) or PC
-- The server must offer **NetherNet**, i.e. answer `GET /v1/join`
+- The server must offer **NetherNet**, i.e. answer `GET /v1/join` over **HTTPS**
   (current BDS/Geyser versions do that out of the box)
 
 ## Online servers: account sign-in
@@ -72,7 +79,7 @@ embedding it into the WebRTC identity.
 requires the console's login to be signed with the same key as the app's connection.
 The app therefore rewrites the login to the app account: the bridge player appears
 on the server as **the app account** (gamertag/XUID of the signed-in Microsoft account),
-and only **one** bridge player can be online at a time. That's the maximum the protocol allows.
+and only **one** bridge player or **one** connected device can be active at a time. That's the maximum the protocol allows.
 
 ---
 
@@ -87,8 +94,8 @@ Just fork — under **Actions**, start the **"APK bauen"** workflow manually
 
 - **No RakNet at all:** LAN discovery via the official NetherNet protocol (UDP 7551),
   with AES/HMAC per spec
-- **WebRTC end-to-end:** devices connect to the app via WebRTC, the app connects to the server via WebRTC
-- The app is a WebRTC answerer for devices on the LAN and a WebRTC client towards the server
+- **WebRTC end-to-end:** one device connects to the app via WebRTC, the app connects to the server via WebRTC
+- The app is a WebRTC answerer for one device on the LAN and a WebRTC client towards the server
 - Server list, player count, version and nonce come live from the server's `/v1/join` endpoint
 - Messages are passed through 1:1 as complete NetherNet frames
 - Nintendo Switch is not supported
@@ -106,7 +113,7 @@ under BSD-3). Protocol implementations are Java ports of, or derived from:
 | [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (spec, no license file) | LAN discovery protocol description |
 | [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox online sign-in (MSA → XSTS → PlayFab → MCToken) |
 | [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport identity binding, login validation |
-| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTP signaling (`/v1/join`), identity validation |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS signaling (`/v1/join`), identity validation |
 | [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login envelope format |
 | [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Authentication chain docs (`docs/auth.md`) |
 | [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Bundled WebRTC library |

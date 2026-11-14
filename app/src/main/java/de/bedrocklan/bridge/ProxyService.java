@@ -8,23 +8,31 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
-import java.io.IOException;
 import java.net.BindException;
+
+import de.bedrocklan.bridge.State.Phase;
+import de.bedrocklan.bridge.discovery.Discovery;
 
 public class ProxyService extends Service {
     static final String EXTRA_HOST = "host";
     static final String EXTRA_PORT = "port";
+    static final String ACTION_STOP = "de.bedrocklan.bridge.action.STOP";
     private static final String CHANNEL = "bridge";
+    private static final int NOTIFY_ID = 1;
 
     private final Object lock = new Object();
     private ProxyEngine engine;
     private boolean destroyed;
     private boolean failed;
+    private boolean starting;
+    private String host;
+    private int port;
 
     private WifiManager.MulticastLock multicastLock;
     private WifiManager.WifiLock wifiLock;
@@ -38,63 +46,136 @@ public class ProxyService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || intent.getStringExtra(EXTRA_HOST) == null) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            handleStop();
+            return START_NOT_STICKY;
+        }
+        String h = null;
+        int p = 19132;
+        if (intent != null && intent.getStringExtra(EXTRA_HOST) != null) {
+            h = intent.getStringExtra(EXTRA_HOST);
+            p = intent.getIntExtra(EXTRA_PORT, 19132);
+        } else {
+            // Neustart nach Prozess-Kill: zuletzt in MainActivity gespeicherte Adresse bestmöglich wiederherstellen.
+            String saved = getSharedPreferences("MainActivity", MODE_PRIVATE).getString("server", "");
+            ServerAddress addr = ServerAddress.parse(saved);
+            if (addr != null) {
+                h = addr.host;
+                p = addr.port;
+            }
+        }
+        if (h == null) {
+            State.running = false;
+            State.setPhase(Phase.OFF, getString(R.string.status_no_address));
             stopSelf();
             return START_NOT_STICKY;
         }
-        final String host = intent.getStringExtra(EXTRA_HOST);
-        final int port = intent.getIntExtra(EXTRA_PORT, 19132);
-
-        goForeground(host, port);
+        synchronized (lock) {
+            if (starting || engine != null) return START_STICKY;
+            starting = true;
+        }
+        host = h;
+        port = p;
         State.running = true;
-        State.status = "Starte …";
+        State.status = getString(R.string.status_starting);
+        State.setPhase(Phase.STARTING, host + ":" + port);
+        Diagnostics.log("service", "Starte Brücke für " + host + ":" + port);
         acquireLocks();
+        goForeground();
 
         new Thread(() -> {
             ProxyEngine e = new ProxyEngine(getApplicationContext(), host, port);
             try {
                 e.start();
-            } catch (IOException ex) {
+            } catch (Throwable ex) {
                 failed = true;
-                State.running = false;
-                if (ex instanceof BindException) {
-                    State.status = "Port 19132 ist belegt. Läuft schon eine andere Brücken-App? Dann diese beenden.";
-                } else {
-                    State.status = "Start fehlgeschlagen: " + ex.getMessage();
+                synchronized (lock) {
+                    starting = false;
                 }
+                State.running = false;
+                String msg;
+                if (ex instanceof BindException) {
+                    msg = getString(R.string.status_port_busy, Discovery.PORT);
+                } else {
+                    msg = getString(R.string.status_start_failed, String.valueOf(ex));
+                }
+                State.status = msg;
+                State.setPhase(Phase.ERROR, msg);
+                Diagnostics.log("service", "Start fehlgeschlagen: " + msg);
+                postNotification();
                 stopSelf();
                 return;
             }
             synchronized (lock) {
+                starting = false;
                 if (destroyed) {
                     e.stop();
                 } else {
                     engine = e;
                 }
             }
+            if (!destroyed) {
+                State.setPhase(Phase.RUNNING, getString(R.string.notify_channel));
+                postNotification();
+            }
         }, "engine-start").start();
 
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
-    private void goForeground(String host, int port) {
+    private void handleStop() {
+        synchronized (lock) {
+            destroyed = true;
+            if (engine != null) {
+                engine.stop();
+                engine = null;
+            }
+            starting = false;
+        }
+        releaseLocks();
+        State.running = false;
+        State.clients = 0;
+        State.status = getString(R.string.status_off);
+        State.setPhase(Phase.OFF, getString(R.string.status_stopped));
+        Diagnostics.log("service", "Über Stop-Aktion beendet");
+        stopSelf();
+    }
+
+    private Notification.Builder builder() {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(
-                CHANNEL, "Brücke läuft", NotificationManager.IMPORTANCE_LOW));
-        PendingIntent pi = PendingIntent.getActivity(
+                CHANNEL, getString(R.string.notify_channel), NotificationManager.IMPORTANCE_LOW));
+        PendingIntent open = PendingIntent.getActivity(
                 this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
-        Notification n = new Notification.Builder(this, CHANNEL)
-                .setContentTitle("Bedrock LAN-Brücke läuft")
-                .setContentText(host + ":" + port)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentIntent(pi)
-                .setOngoing(true)
-                .build();
+        PendingIntent stop = PendingIntent.getService(
+                this, 1, new Intent(this, ProxyService.class).setAction(ACTION_STOP),
+                PendingIntent.FLAG_IMMUTABLE);
+        String title = host != null ? host + ":" + port : getString(R.string.app_title);
+        String text = State.clients > 0 ? getString(R.string.notify_connected)
+                : getString(R.string.notify_disconnected);
+        return new Notification.Builder(this, CHANNEL)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(R.drawable.ic_bridge_notify)
+                .setContentIntent(open)
+                .addAction(new Notification.Action.Builder(
+                        Icon.createWithResource(this, R.drawable.ic_bridge_notify),
+                        getString(R.string.action_stop), stop).build())
+                .setOngoing(true);
+    }
+
+    private void goForeground() {
+        Notification n = builder().build();
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            startForeground(NOTIFY_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         } else {
-            startForeground(1, n);
+            startForeground(NOTIFY_ID, n);
         }
+    }
+
+    private void postNotification() {
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(NOTIFY_ID, builder().build());
     }
 
     private void acquireLocks() {
@@ -118,6 +199,12 @@ public class ProxyService extends Service {
         }
     }
 
+    private void releaseLocks() {
+        if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
+        if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+    }
+
     @Override
     public void onDestroy() {
         synchronized (lock) {
@@ -127,12 +214,11 @@ public class ProxyService extends Service {
                 engine = null;
             }
         }
-        if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
-        if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        releaseLocks();
         State.running = false;
         State.clients = 0;
-        if (!failed) State.status = "Aus";
+        if (!failed) State.status = getString(R.string.status_off);
+        State.setPhase(failed ? Phase.ERROR : Phase.OFF, State.status);
         super.onDestroy();
     }
 

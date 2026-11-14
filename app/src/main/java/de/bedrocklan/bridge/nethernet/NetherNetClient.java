@@ -14,8 +14,9 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * NetherNet-Signaling über den HTTP-Endpunkt des Servers (GET/POST /v1/join),
+ * NetherNet-Signaling über den HTTPS-Endpunkt des Servers (GET/POST /v1/join),
  * wie ihn der Vanilla-Client für "externe Server" verwendet (df-mc/nethernet-spec).
+ * HTTP wird nicht unterstützt.
  */
 public final class NetherNetClient {
     private final String host;
@@ -33,8 +34,21 @@ public final class NetherNetClient {
         return networkId;
     }
 
-    /** Server-Status abfragen; liefert null, wenn der Server kein NetherNet anbietet. */
-    public Status fetchStatus(int timeoutMs) throws IOException {
+    /**
+     * Server-Status abfragen; liefert null, wenn der Server kein NetherNet
+     * anbietet. Synchronisiert: endpointBase wird nur hier gesetzt/geertet,
+     * eine veraltete Basis wird neu ermittelt statt dauerhaft zu sperren.
+     */
+    public synchronized Status fetchStatus(int timeoutMs) throws IOException {
+        String known = endpointBase;
+        if (known != null) {
+            try {
+                return httpGetStatus(known + "/v1/join", timeoutMs);
+            } catch (IOException e) {
+                // bekannte Basis ist nicht mehr erreichbar: neu ermitteln
+                endpointBase = null;
+            }
+        }
         for (String base : candidateBases()) {
             try {
                 Status s = httpGetStatus(base + "/v1/join", timeoutMs);
@@ -49,13 +63,29 @@ public final class NetherNetClient {
 
     /**
      * SDP-Offer an den Server posten; liefert das SDP-Answer des Servers.
-     * {@link #fetchStatus(int)} muss vorher erfolgreich gewesen sein.
+     * {@link #fetchStatus(int)} muss vorher erfolgreich gewesen sein. Ist die
+     * gecachte Basis ungültig, wird sie verworfen, einmal neu ermittelt und
+     * das Posten erneut versucht — statt an einer toden Basis dauerhaft
+     * zu scheitern.
      */
-    public String exchangeSdp(String offerSdp, int timeoutMs) throws IOException {
+    public synchronized String exchangeSdp(String offerSdp, int timeoutMs) throws IOException {
         if (endpointBase == null && fetchStatus(timeoutMs) == null) {
             throw new IOException("Server bietet kein NetherNet an");
         }
+        try {
+            return postSdp(offerSdp, timeoutMs);
+        } catch (IOException e) {
+            endpointBase = null;
+            if (fetchStatus(timeoutMs) == null) {
+                throw new IOException("Server bietet kein NetherNet an");
+            }
+            return postSdp(offerSdp, timeoutMs);
+        }
+    }
+
+    private String postSdp(String offerSdp, int timeoutMs) throws IOException {
         String url = endpointBase + "/v1/join/" + networkId;
+        if (!url.startsWith("https://")) throw new IOException("Nur HTTPS erlaubt: " + abbrevBase(endpointBase));
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
             c.setRequestMethod("POST");
@@ -82,6 +112,11 @@ public final class NetherNetClient {
         }
     }
 
+    private static String abbrevBase(String url) {
+        int scheme = url.indexOf("://");
+        return scheme < 0 ? url : url.substring(0, scheme) + "://…";
+    }
+
     private Status httpGetStatus(String url, int timeoutMs) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
@@ -98,24 +133,37 @@ public final class NetherNetClient {
         }
     }
 
-    /** Reihenfolge wie der Vanilla-Client: erst HTTPS, dann HTTP (endpoint/doc.go). */
+    /** Nur HTTPS-Kandidaten; HTTP wird grundsätzlich nicht unterstützt. */
     private List<String> candidateBases() {
+        return httpsCandidateBases(host, port);
+    }
+
+    /**
+     * HTTPS-Basis-URLs für einen Server. Explizit angegebenes „http://“ wird
+     * eindeutig auf „https://“ normalisiert, unbekannte Schemata verworfen.
+     */
+    public static List<String> httpsCandidateBases(String host, int port) {
         List<String> l = new ArrayList<>();
+        String h = host == null ? "" : host.trim();
+        if (h.isEmpty()) return l;
+        if (h.startsWith("http://")) h = h.substring("http://".length());
+        else if (h.startsWith("https://")) h = h.substring("https://".length());
+        else if (h.contains("://")) return l;
         int p = port == 0 ? 19132 : port;
-        if (p == 19132) {
-            l.add("https://" + host(p));
-            l.add("https://" + host);
-            l.add("http://" + host(p));
-            l.add("http://" + host);
-        } else {
-            l.add("https://" + host(p));
-            l.add("http://" + host(p));
-        }
+        l.add("https://" + hostPort(h, p));
+        if (p == 19132) l.add("https://" + bracketIpv6(h));
         return l;
     }
 
-    private String host(int p) {
-        return host + ":" + p;
+    /** IPv6-Literale (Host mit „:“) müssen in HTTPS-URLs geklammert werden. */
+    static String bracketIpv6(String host) {
+        if (host == null) return host;
+        if (host.startsWith("[") && host.endsWith("]")) return host;
+        return host.indexOf(':') >= 0 ? "[" + host + "]" : host;
+    }
+
+    private static String hostPort(String host, int port) {
+        return bracketIpv6(host) + ":" + port;
     }
 
     public static Status parseStatus(String json) {

@@ -11,20 +11,31 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.View;
 import android.view.WindowInsetsController;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
-import android.net.Uri;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.content.FileProvider;
+
+import java.io.File;
+import java.text.DateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+import de.bedrocklan.bridge.State.Phase;
 import de.bedrocklan.bridge.auth.AccountManager;
 
 import org.json.JSONObject;
@@ -39,20 +50,31 @@ public class MainActivity extends Activity {
     private static final int GREEN = 0xFF4CAF6E;
     private static final int RED = 0xFFE0564F;
     private static final int LINK = 0xFF8AB8FF;
+    private static final int AMBER = 0xFFFFB862;
+
+    private static final long STARTING_TIMEOUT_MS = 10_000L;
 
     private EditText input;
     private Button button;
     private TextView status;
+    private TextView statusTime;
     private String localError;
     private AccountManager account;
     private TextView accountStatus;
     private Button accountButton;
+    private TextView notifHint;
+    private TextView notifSettings;
     private TextView updateRow;
     private TextView serverName;
     private TextView serverMeta;
     private LinearLayout serverCard;
     private LinearLayout favCard;
     private LinearLayout favList;
+    private long startRequestedAt;
+    private String pendingUpdateTag;
+    private String pendingUpdateUrl;
+    private String pendingUpdateNotes;
+    private static volatile boolean updateCheckedInProcess = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override
@@ -75,14 +97,14 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
 
         TextView title = new TextView(this);
-        title.setText("Bedrock LAN-Brücke");
+        title.setText(R.string.app_title);
         title.setTextSize(26);
         title.setTextColor(TEXT);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Minecraft-Bedrock-Server im LAN sichtbar machen");
+        subtitle.setText(R.string.subtitle);
         subtitle.setTextSize(13);
         subtitle.setTextColor(MUTED);
         root.addView(subtitle);
@@ -90,7 +112,7 @@ public class MainActivity extends Activity {
         LinearLayout inputCard = card();
 
         TextView hint = new TextView(this);
-        hint.setText("Serveradresse (mit oder ohne Port)");
+        hint.setText(R.string.address_hint);
         hint.setTextSize(13);
         hint.setTextColor(MUTED);
         inputCard.addView(hint);
@@ -98,7 +120,7 @@ public class MainActivity extends Activity {
         input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        input.setHint("z. B. play.beispiel.de:19132");
+        input.setHint(R.string.address_example);
         input.setText(getPreferences(MODE_PRIVATE).getString("server", ""));
         input.setTextSize(15);
         input.setTextColor(TEXT);
@@ -126,10 +148,13 @@ public class MainActivity extends Activity {
         inputCard.addView(button, bp);
 
         TextView favAdd = new TextView(this);
-        favAdd.setText("★ Diese Adresse zu Favoriten");
+        favAdd.setText(R.string.add_favorite);
         favAdd.setTextSize(13);
         favAdd.setTextColor(LINK);
         favAdd.setPadding(dp(2), dp(12), dp(2), 0);
+        favAdd.setClickable(true);
+        favAdd.setFocusable(true);
+        favAdd.setContentDescription(getString(R.string.add_favorite_cd));
         favAdd.setOnClickListener(v -> addFavorite());
         inputCard.addView(favAdd);
 
@@ -137,7 +162,7 @@ public class MainActivity extends Activity {
 
         favCard = card();
         TextView favTitle = new TextView(this);
-        favTitle.setText("Favoriten");
+        favTitle.setText(R.string.favorites_title);
         favTitle.setTextSize(13);
         favTitle.setTextColor(MUTED);
         favCard.addView(favTitle);
@@ -150,7 +175,15 @@ public class MainActivity extends Activity {
         status.setTextSize(15);
         status.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         status.setPadding(dp(4), 0, dp(4), 0);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         root.addView(status);
+
+        statusTime = new TextView(this);
+        statusTime.setTextSize(12);
+        statusTime.setTextColor(MUTED);
+        statusTime.setPadding(dp(4), 0, dp(4), 0);
+        statusTime.setVisibility(View.GONE);
+        root.addView(statusTime);
 
         LinearLayout serverCard = card();
         this.serverCard = serverCard;
@@ -189,35 +222,65 @@ public class MainActivity extends Activity {
         ap.topMargin = dp(10);
         accountCard.addView(accountButton, ap);
 
+        notifHint = new TextView(this);
+        notifHint.setText(R.string.notif_hint);
+        notifHint.setTextSize(13);
+        notifHint.setTextColor(MUTED);
+        notifHint.setVisibility(View.GONE);
+        LinearLayout.LayoutParams nh = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        nh.topMargin = dp(10);
+        accountCard.addView(notifHint, nh);
+
+        notifSettings = link();
+        notifSettings.setText(R.string.notif_settings);
+        notifSettings.setVisibility(View.GONE);
+        notifSettings.setOnClickListener(v -> openNotificationSettings());
+        accountCard.addView(notifSettings);
+
         root.addView(accountCard, cardLp());
 
-        updateRow = new TextView(this);
-        updateRow.setTextSize(14);
-        updateRow.setTextColor(LINK);
-        updateRow.setPadding(dp(4), 0, dp(4), dp(12));
+        updateRow = link();
         updateRow.setVisibility(View.GONE);
         root.addView(updateRow);
 
         LinearLayout helpCard = card();
         TextView help = new TextView(this);
-        help.setText("So geht's:\n"
-                + "1. Handy und Konsole/PC im selben WLAN.\n"
-                + "2. Serveradresse eingeben, „Starten“ drücken.\n"
-                + "3. Minecraft öffnen und in der Liste der LAN-Spiele den Server wählen.\n\n"
-                + "Die App muss laufen, solange ihr spielt. Danach „Stoppen“ drücken.");
+        help.setText(R.string.help_steps);
         help.setTextSize(13);
         help.setTextColor(MUTED);
         help.setLineSpacing(dp(3), 1f);
         helpCard.addView(help);
+
+        TextView battery = new TextView(this);
+        battery.setText(R.string.help_battery);
+        battery.setTextSize(13);
+        battery.setTextColor(MUTED);
+        battery.setLineSpacing(dp(3), 1f);
+        LinearLayout.LayoutParams bp2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        bp2.topMargin = dp(10);
+        helpCard.addView(battery, bp2);
+
+        TextView batteryLink = link();
+        batteryLink.setText(R.string.battery_link_label);
+        batteryLink.setOnClickListener(v ->
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://dontkillmyapp.com/"))));
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = dp(4);
+        helpCard.addView(batteryLink, bl);
         root.addView(helpCard, cardLp());
 
-        TextView licenses = new TextView(this);
-        licenses.setText("Lizenzen & Namensnennung");
-        licenses.setTextSize(14);
-        licenses.setTextColor(LINK);
-        licenses.setPadding(dp(4), 0, dp(4), dp(8));
+        TextView licenses = link();
+        licenses.setText(R.string.licenses_label);
         licenses.setOnClickListener(v -> showLicenses());
         root.addView(licenses);
+
+        TextView diag = link();
+        diag.setText(R.string.diag_label);
+        diag.setOnClickListener(v -> shareDiagnostics());
+        root.addView(diag);
 
         account = new AccountManager(this);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
@@ -246,6 +309,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1) updateNotifHint();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         handler.post(refresh);
@@ -262,13 +331,15 @@ public class MainActivity extends Activity {
         if (State.running) {
             stopService(new Intent(this, ProxyService.class));
             State.running = false;
-            State.status = "Aus";
+            State.status = getString(R.string.status_off);
+            State.setPhase(Phase.OFF, null);
+            startRequestedAt = 0L;
             updateUi();
             return;
         }
-        Object[] target = parse(input.getText().toString());
+        ServerAddress target = ServerAddress.parse(input.getText().toString());
         if (target == null) {
-            localError = "Das ist keine gültige Adresse. Beispiel: play.beispiel.de:19132";
+            localError = getString(R.string.invalid_address);
             updateUi();
             return;
         }
@@ -277,62 +348,112 @@ public class MainActivity extends Activity {
         if (imm != null) imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
 
         Intent i = new Intent(this, ProxyService.class);
-        i.putExtra(ProxyService.EXTRA_HOST, (String) target[0]);
-        i.putExtra(ProxyService.EXTRA_PORT, (Integer) target[1]);
+        i.putExtra(ProxyService.EXTRA_HOST, target.host);
+        i.putExtra(ProxyService.EXTRA_PORT, target.port);
         State.running = true;
-        State.status = "Starte …";
+        State.status = getString(R.string.status_starting);
+        startRequestedAt = System.currentTimeMillis();
+        State.setPhase(Phase.STARTING, target.host + ":" + target.port);
         startForegroundService(i);
         updateUi();
     }
 
     private void updateUi() {
+        Phase phase = State.getPhase();
         boolean on = State.running;
         if (button.getTag() == null || !button.getTag().equals(on)) {
             button.setTag(on);
-            button.setText(on ? "Stoppen" : "Starten");
+            button.setText(on ? R.string.action_stop : R.string.action_start);
             setRipple(button, rounded(on ? RED : GREEN, 0));
         }
         input.setEnabled(!on);
         input.setAlpha(on ? 0.6f : 1f);
         accountButton.setEnabled(!on);
         accountButton.setAlpha(on ? 0.6f : 1f);
+
+        String text;
+        int color;
         if (localError != null) {
-            status.setText(localError);
-            status.setTextColor(0xFFFF7B72);
+            text = localError;
+            color = 0xFFFF7B72;
+        } else if (phase == Phase.DEGRADED) {
+            text = State.status;
+            color = AMBER;
+        } else if (phase == Phase.ERROR) {
+            text = State.status;
+            color = 0xFFFF7B72;
+        } else if (phase == Phase.STARTING) {
+            text = State.status;
+            long since = Math.max(State.getLastChangeMillis(), startRequestedAt);
+            if (since > 0 && System.currentTimeMillis() - since > STARTING_TIMEOUT_MS) {
+                text = text + "\n" + getString(R.string.status_starting_slow);
+            }
+            color = on ? 0xFF6EDC7E : MUTED;
         } else {
-            status.setText(State.status);
-            status.setTextColor(on ? 0xFF6EDC7E : MUTED);
+            text = State.status;
+            color = on ? 0xFF6EDC7E : MUTED;
         }
+        status.setText(text);
+        status.setTextColor(color);
+
+        boolean showTime = phase == Phase.DEGRADED || phase == Phase.ERROR;
+        if (showTime && State.getLastChangeMillis() > 0) {
+            String t = DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
+                    .format(new Date(State.getLastChangeMillis()));
+            statusTime.setText(getString(R.string.status_changed_at, t));
+            statusTime.setVisibility(View.VISIBLE);
+        } else {
+            statusTime.setVisibility(View.GONE);
+        }
+
         String name = State.serverName;
         if (on && name != null && !name.isEmpty()) {
             serverName.setText(name);
-            StringBuilder meta = new StringBuilder();
+            String meta = "";
             if (State.players >= 0) {
-                meta.append(State.players).append(State.maxPlayers > 0 ? " / " + State.maxPlayers : "")
-                        .append(" Spieler");
+                meta = State.maxPlayers > 0
+                        ? getString(R.string.meta_players, State.players, State.maxPlayers)
+                        : getString(R.string.meta_players_open, State.players);
             }
             if (State.levelName != null && !State.levelName.isEmpty()) {
-                if (meta.length() > 0) meta.append(" · ");
-                meta.append(State.levelName);
+                meta = joinMeta(meta, State.levelName);
             }
             if (State.version != null && !State.version.isEmpty()) {
-                if (meta.length() > 0) meta.append(" · ");
-                meta.append("v").append(State.version);
+                meta = joinMeta(meta, getString(R.string.meta_version, State.version));
             }
-            serverMeta.setText(meta.toString());
+            serverMeta.setText(meta);
             serverCard.setVisibility(View.VISIBLE);
         } else {
             serverCard.setVisibility(View.GONE);
         }
+        updateNotifHint();
+    }
+
+    private String joinMeta(String meta, String part) {
+        if (meta.isEmpty()) return part;
+        return meta + getString(R.string.meta_separator) + part;
+    }
+
+    private void updateNotifHint() {
+        boolean denied = Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED;
+        notifHint.setVisibility(denied ? View.VISIBLE : View.GONE);
+        notifSettings.setVisibility(denied ? View.VISIBLE : View.GONE);
+    }
+
+    private void openNotificationSettings() {
+        Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+        i.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        startActivity(i);
     }
 
     private void onAccountButton() {
         if (State.running) {
-            android.widget.Toast.makeText(this,
-                    "Zum Wechseln erst die Brücke stoppen.", android.widget.Toast.LENGTH_SHORT).show();
+            toast(getString(R.string.account_switch_blocked));
             return;
         }
-        java.util.List<AccountManager.Account> accounts = account.accounts();
+        List<AccountManager.Account> accounts = account.accounts();
         if (accounts.isEmpty()) {
             startSignIn();
             return;
@@ -348,20 +469,21 @@ public class MainActivity extends Activity {
         String[] names = new String[accounts.size()];
         for (int i = 0; i < accounts.size(); i++) {
             String gtg = accounts.get(i).gamertag;
-            names[i] = accounts.get(i).id.equals(active) ? "● " + gtg : "○ " + gtg;
+            names[i] = getString(accounts.get(i).id.equals(active)
+                    ? R.string.account_selected : R.string.account_unselected, gtg);
         }
         final int[] sel = {checked};
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Microsoft-Konten")
+                .setTitle(R.string.account_dialog_title)
                 .setSingleChoiceItems(names, checked, (d, which) -> sel[0] = which)
-                .setPositiveButton("Wechseln", (d, w) -> {
+                .setPositiveButton(R.string.account_switch, (d, w) -> {
                     if (!accounts.get(sel[0]).id.equals(active)) {
                         account.setActive(accounts.get(sel[0]).id);
                     }
                     updateAccountUi();
                 })
-                .setNeutralButton("Hinzufügen", (d, w) -> startSignIn())
-                .setNegativeButton("Entfernen", (d, w) -> {
+                .setNeutralButton(R.string.account_add, (d, w) -> startSignIn())
+                .setNegativeButton(R.string.account_remove, (d, w) -> {
                     account.remove(accounts.get(sel[0]).id);
                     updateAccountUi();
                 })
@@ -371,13 +493,11 @@ public class MainActivity extends Activity {
     private void startSignIn() {
         accountButton.setEnabled(false);
         accountStatus.setTextColor(MUTED);
-        accountStatus.setText("Anmeldung läuft …");
+        accountStatus.setText(R.string.sign_in_running);
         account.signIn(new AccountManager.SignInCallback() {
             @Override
             public void onCode(String userCode, String url) {
-                handler.post(() -> accountStatus.setText(
-                        "Auf einem beliebigen Gerät " + url + " öffnen\nund Code eingeben:\n\n"
-                                + userCode + "\n\n(Microsoft-Konto, mit dem Minecraft spielt)"));
+                handler.post(() -> accountStatus.setText(getString(R.string.sign_in_code, url, userCode)));
             }
 
             @Override
@@ -386,7 +506,7 @@ public class MainActivity extends Activity {
                     updateAccountUi();
                     if (gamertag == null) {
                         accountStatus.setTextColor(0xFFFF7B72);
-                        accountStatus.setText(error != null ? error : "Anmeldung fehlgeschlagen.");
+                        accountStatus.setText(error != null ? error : getString(R.string.sign_in_failed));
                     }
                 });
             }
@@ -396,60 +516,121 @@ public class MainActivity extends Activity {
     private void updateAccountUi() {
         boolean in = account.isSignedIn();
         String tag = account.gamertag();
+        if (tag == null) tag = getString(R.string.account_fallback);
         int count = account.accounts().size();
         accountButton.setEnabled(!State.running);
         accountButton.setAlpha(State.running ? 0.6f : 1f);
         if (in) {
-            accountButton.setText(count > 1 ? tag + " ▾" : tag != null ? tag : "Konto");
+            accountButton.setText(count > 1
+                    ? getString(R.string.account_with_arrow, tag) : tag);
             accountStatus.setTextColor(TEXT);
-            accountStatus.setText("Angemeldet als " + (tag != null ? tag : "Konto")
-                    + (count > 1 ? " · " + count + " Konten gespeichert, tippen zum Wechseln" : ""));
+            accountStatus.setText(count > 1
+                    ? getString(R.string.account_signed_in_multi, tag, count)
+                    : getString(R.string.account_signed_in, tag));
         } else if (count > 0) {
-            accountButton.setText("Konto wählen ▾");
+            accountButton.setText(R.string.account_choose);
             accountStatus.setTextColor(MUTED);
-            accountStatus.setText(count + " Konto(s) gespeichert – tippen zum Auswählen.");
+            accountStatus.setText(getString(R.string.account_stored, count));
         } else {
-            accountButton.setText("Mit Microsoft-Konto anmelden");
+            accountButton.setText(R.string.account_sign_in);
             accountStatus.setTextColor(MUTED);
-            accountStatus.setText("Nicht angemeldet. Für Online-Server nötig "
-                    + "(Signaling-Identität von Mojang).");
+            accountStatus.setText(R.string.account_not_signed_in);
         }
     }
 
-    /** Prüft die neueste GitHub-Release gegen die installierte Version. */
     private void checkForUpdate() {
-        Thread t = new Thread(() -> {
+        SharedPreferences prefs = getSharedPreferences("update", MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        if (updateCheckedInProcess || !UpdateCheck.due(now, prefs.getLong("last", 0L))) return;
+        updateCheckedInProcess = true;
+        final SharedPreferences updatePrefs = prefs;
+        final long checkedAt = now;
+        new Thread(() -> {
             try {
-                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
-                        "https://api.github.com/repos/x1708er/bedrock-bridge/releases/latest")
-                        .openConnection();
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(8000);
-                c.setRequestProperty("User-Agent", "BedrockLanBruecke-UpdateCheck");
-                try (java.io.InputStream in = c.getInputStream()) {
-                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                    byte[] buf = new byte[4096];
-                    int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                    JSONObject release = new JSONObject(out.toString("UTF-8"));
-                    String tag = release.optString("tag_name", "").replaceFirst("^v", "");
-                    String url = release.optString("html_url", "");
-                    String current = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-                    if (!tag.isEmpty() && !url.isEmpty() && isNewer(tag, current)) {
-                        handler.post(() -> {
-                            updateRow.setText("Update verfügbar: v" + tag + " – tippen zum Herunterladen");
-                            updateRow.setVisibility(android.view.View.VISIBLE);
-                            updateRow.setOnClickListener(v ->
-                                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))));
-                        });
-                    }
+                String current;
+                try {
+                    current = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                } catch (Exception e) {
+                    current = null;
                 }
-            } catch (Exception ignored) {
-                // kein Internet oder GitHub nicht erreichbar: still bleiben
+                String tag = null;
+                String url = null;
+                String notes = null;
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                            "https://api.github.com/repos/x1708er/bedrock-bridge/releases/latest")
+                            .openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
+                    c.setRequestProperty("User-Agent", "BedrockLanBruecke-UpdateCheck");
+                    try (java.io.InputStream in = c.getInputStream()) {
+                        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        JSONObject release = new JSONObject(out.toString("UTF-8"));
+                        tag = release.optString("tag_name", "").replaceFirst("^v", "");
+                        url = release.optString("html_url", "");
+                        notes = release.optString("body", "");
+                    }
+                } catch (Exception e) {
+                    // Netzwerkfehler: kein Zeitstempel — der Check wird nicht für eine Stunde gesperrt.
+                    return;
+                }
+                if (tag == null || tag.isEmpty()) return;
+                // Zeitstempel erst nach erfolgreichem Check schreiben.
+                updatePrefs.edit().putLong("last", checkedAt).apply();
+                if (!UpdateCheck.isNewer(tag, current)) {
+                    handler.post(() -> {
+                        updateRow.setText(R.string.update_current);
+                        updateRow.setTextColor(MUTED);
+                        updateRow.setClickable(false);
+                        updateRow.setVisibility(View.VISIBLE);
+                    });
+                    return;
+                }
+                // Update-URL validieren: ohne gültige HTTPS-Adresse kein Dialog.
+                if (url == null || !url.startsWith("https://")) return;
+                if (tag.equals(updatePrefs.getString("skipped", null))) return;
+                final String t = tag;
+                final String u = url;
+                final String n = notes;
+                handler.post(() -> {
+                    pendingUpdateTag = t;
+                    pendingUpdateUrl = u;
+                    pendingUpdateNotes = n;
+                    updateRow.setTextColor(LINK);
+                    updateRow.setText(getString(R.string.update_available, t));
+                    updateRow.setClickable(true);
+                    updateRow.setVisibility(View.VISIBLE);
+                    updateRow.setOnClickListener(v -> showUpdateDialog());
+                });
+            } finally {
+                updateCheckedInProcess = false;
             }
-        }, "update-check");
-        t.setDaemon(true);
-        t.start();
+        }, "update-check").start();
+    }
+
+    private void showUpdateDialog() {
+        TextView view = new TextView(this);
+        view.setText(pendingUpdateNotes == null || pendingUpdateNotes.isEmpty()
+                ? getString(R.string.update_notes_title, pendingUpdateTag)
+                : pendingUpdateNotes);
+        view.setTextSize(13);
+        int pad = dp(16);
+        view.setPadding(pad, pad, pad, pad);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(view);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.update_notes_title, pendingUpdateTag))
+                .setView(scroll)
+                .setPositiveButton(R.string.update_download, (d, w) ->
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(pendingUpdateUrl))))
+                .setNegativeButton(R.string.update_skip, (d, w) ->
+                        getSharedPreferences("update", MODE_PRIVATE).edit()
+                                .putString("skipped", pendingUpdateTag).apply())
+                .setNeutralButton(R.string.update_later, null)
+                .show();
     }
 
     private void showLicenses() {
@@ -461,112 +642,118 @@ public class MainActivity extends Activity {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(view);
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Lizenzen")
+                .setTitle(R.string.licenses_title)
                 .setView(scroll)
-                .setPositiveButton("Schließen", null)
+                .setPositiveButton(R.string.close, null)
                 .show();
     }
 
-    private static boolean isNewer(String candidate, String current) {
-        int[] a = versionParts(candidate);
-        int[] b = versionParts(current);
-        for (int i = 0; i < 3; i++) {
-            if (a[i] != b[i]) return a[i] > b[i];
-        }
-        return false;
-    }
-
-    private static int[] versionParts(String v) {
-        int[] out = new int[3];
-        String[] parts = v.replaceFirst("^v", "").split("\\.");
-        for (int i = 0; i < 3; i++) {
-            try {
-                out[i] = Integer.parseInt(parts[i]);
-            } catch (Exception e) {
-                out[i] = 0;
-            }
-        }
-        return out;
-    }
-
-    /** Akzeptiert "host", "host:port", "host port", auch mit "minecraft://" davor. */
-    private static Object[] parse(String raw) {
-        String s = raw.trim().replaceAll("^[a-zA-Z]+://", "").replaceAll("/.*$", "");
-        if (s.isEmpty()) return null;
-        String[] t = s.split("\\s+");
-        String host;
-        int port = 19132;
+    private void shareDiagnostics() {
         try {
-            if (t.length == 1) {
-                host = t[0];
-                int idx = host.lastIndexOf(':');
-                if (idx >= 0) {
-                    port = Integer.parseInt(host.substring(idx + 1));
-                    host = host.substring(0, idx);
-                }
-            } else if (t.length == 2) {
-                host = t[0];
-                port = Integer.parseInt(t[1]);
-            } else {
-                return null;
-            }
-        } catch (NumberFormatException e) {
-            return null;
+            File report = Diagnostics.writeReport(getCacheDir());
+            Uri uri = FileProvider.getUriForFile(this, "de.bedrocklan.bridge.files", report);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, getString(R.string.diag_label)));
+        } catch (Exception e) {
+            toast(getString(R.string.diag_failed));
         }
-        if (host.isEmpty() || port < 1 || port > 65535) return null;
-        return new Object[]{host, port};
     }
 
     // ------------------------------------------------------------------ Favoriten
 
-    private java.util.List<String> loadFavorites() {
-        java.util.List<String> out = new java.util.ArrayList<>();
+    private List<Favorites.Entry> loadFavorites() {
+        List<Favorites.Entry> out = new ArrayList<>();
         try {
             org.json.JSONArray a = new org.json.JSONArray(
                     getSharedPreferences("servers", MODE_PRIVATE).getString("list", "[]"));
-            for (int i = 0; i < a.length(); i++) out.add(a.getString(i));
+            for (int i = 0; i < a.length(); i++) {
+                Object o = a.get(i);
+                if (o instanceof JSONObject) {
+                    JSONObject j = (JSONObject) o;
+                    String name = j.optString("n", null);
+                    out.add(new Favorites.Entry(j.optString("a", ""), name));
+                } else {
+                    out.add(new Favorites.Entry(a.getString(i), null));
+                }
+            }
         } catch (Exception ignored) {
         }
-        return out;
+        return Favorites.sanitize(out);
     }
 
-    private void saveFavorites(java.util.List<String> list) {
-        getSharedPreferences("servers", MODE_PRIVATE).edit()
-                .putString("list", new org.json.JSONArray(list).toString()).apply();
+    private void saveFavorites(List<Favorites.Entry> list) {
+        org.json.JSONArray a = new org.json.JSONArray();
+        try {
+            for (Favorites.Entry e : list) {
+                JSONObject o = new JSONObject();
+                o.put("a", e.address);
+                if (e.name != null) o.put("n", e.name);
+                a.put(o);
+            }
+        } catch (Exception ignored) {
+        }
+        getSharedPreferences("servers", MODE_PRIVATE).edit().putString("list", a.toString()).apply();
     }
 
     private void renderFavorites() {
         favList.removeAllViews();
-        java.util.List<String> favs = loadFavorites();
+        List<Favorites.Entry> favs = loadFavorites();
         favCard.setVisibility(favs.isEmpty() ? View.GONE : View.VISIBLE);
+        String activeKey = ServerAddress.normalize(input.getText().toString());
         for (int i = 0; i < favs.size(); i++) {
-            final String addr = favs.get(i);
+            final Favorites.Entry entry = favs.get(i);
+            String key = ServerAddress.normalize(entry.address);
+            boolean active = key != null && key.equals(activeKey);
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setPadding(dp(4), dp(10), dp(4), dp(10));
             setRipple(row, rounded(0, 0));
+
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
             TextView name = new TextView(this);
-            name.setText(addr);
             name.setTextSize(14);
             name.setTextColor(TEXT);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-            row.addView(name, np);
+            String display = Favorites.displayName(entry);
+            name.setText(active ? getString(R.string.favorite_row_active, display) : display);
+            col.addView(name);
+            if (entry.name != null) {
+                TextView addr = new TextView(this);
+                addr.setText(entry.address);
+                addr.setTextSize(12);
+                addr.setTextColor(MUTED);
+                addr.setSingleLine(true);
+                addr.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                col.addView(addr);
+            }
+            row.addView(col, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
             TextView del = new TextView(this);
-            del.setText("Entfernen");
+            del.setText(R.string.remove_favorite);
             del.setTextSize(13);
             del.setTextColor(LINK);
+            del.setClickable(true);
+            del.setFocusable(true);
+            del.setContentDescription(getString(R.string.remove_favorite_cd, display));
             LinearLayout.LayoutParams dp2 = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             dp2.leftMargin = dp(12);
             row.addView(del, dp2);
             row.setOnClickListener(v -> {
-                input.setText(addr);
+                if (State.running) {
+                    toast(getString(R.string.favorite_change_blocked));
+                    return;
+                }
+                input.setText(entry.address);
                 input.setSelection(input.getText().length());
+                renderFavorites();
             });
-            del.setOnClickListener(v -> confirmRemoveFavorite(addr));
+            del.setOnClickListener(v -> confirmRemoveFavorite(entry));
             favList.addView(row);
             if (i < favs.size() - 1) {
                 View sep = new View(this);
@@ -581,40 +768,73 @@ public class MainActivity extends Activity {
     private void addFavorite() {
         String addr = input.getText().toString().trim();
         if (addr.isEmpty()) {
-            toast("Erst eine Serveradresse eingeben.");
+            toast(getString(R.string.favorite_empty));
             return;
         }
-        if (parse(addr) == null) {
-            toast("Das ist keine gültige Adresse.");
+        if (ServerAddress.parse(addr) == null) {
+            toast(getString(R.string.favorite_invalid));
             return;
         }
-        java.util.List<String> favs = loadFavorites();
-        if (favs.contains(addr)) {
-            toast("Diese Adresse ist schon in den Favoriten.");
-            return;
+        String key = ServerAddress.normalize(addr);
+        for (Favorites.Entry e : loadFavorites()) {
+            if (key.equals(ServerAddress.normalize(e.address))) {
+                toast(getString(R.string.favorite_exists));
+                return;
+            }
         }
-        favs.add(addr);
-        saveFavorites(favs);
-        renderFavorites();
-        toast("Zu Favoriten hinzugefügt.");
+        final EditText nameInput = new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setHint(R.string.favorite_name_hint);
+        nameInput.setTextSize(15);
+        int pad = dp(16);
+        nameInput.setPadding(pad, dp(8), pad, 0);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.favorite_name_title)
+                .setMessage(getString(R.string.favorite_name_message, key))
+                .setView(nameInput)
+                .setPositiveButton(R.string.favorite_add_ok, (d, w) -> {
+                    String name = nameInput.getText().toString().trim();
+                    List<Favorites.Entry> favs = loadFavorites();
+                    favs.add(new Favorites.Entry(addr, name.isEmpty() ? null : name));
+                    saveFavorites(Favorites.sanitize(favs));
+                    renderFavorites();
+                    toast(getString(R.string.favorite_added));
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
-    private void confirmRemoveFavorite(String addr) {
+    private void confirmRemoveFavorite(Favorites.Entry entry) {
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Favorit entfernen")
-                .setMessage("„" + addr + "“ aus den Favoriten löschen?")
-                .setPositiveButton("Entfernen", (d, w) -> {
-                    java.util.List<String> favs = loadFavorites();
-                    favs.remove(addr);
-                    saveFavorites(favs);
+                .setTitle(R.string.remove_favorite_title)
+                .setMessage(getString(R.string.remove_favorite_message, entry.address))
+                .setPositiveButton(R.string.remove_favorite, (d, w) -> {
+                    List<Favorites.Entry> favs = loadFavorites();
+                    String key = ServerAddress.normalize(entry.address);
+                    List<Favorites.Entry> keep = new ArrayList<>();
+                    for (Favorites.Entry e : favs) {
+                        String k = ServerAddress.normalize(e.address);
+                        if (k == null || !k.equals(key)) keep.add(e);
+                    }
+                    saveFavorites(keep);
                     renderFavorites();
                 })
-                .setNegativeButton("Abbrechen", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
     private void toast(String s) {
         android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private TextView link() {
+        TextView tv = new TextView(this);
+        tv.setTextSize(14);
+        tv.setTextColor(LINK);
+        tv.setPadding(dp(4), 0, dp(4), dp(8));
+        tv.setClickable(true);
+        tv.setFocusable(true);
+        return tv;
     }
 
     private int dp(int v) {

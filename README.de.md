@@ -39,6 +39,13 @@ der Quellcode liegt offen. In der Meldung **„Details“ → „Trotzdem instal
 Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einstellungen →
 „Apps prüfen“ kurz aus, installieren, wieder an.
 
+## Datenschutz
+
+- Keine Werbung, kein Tracking, keine Analytics.
+- Der Update-Check fragt ausschließlich die GitHub-API ab; dabei werden keine Nutzerdaten übermittelt.
+- Die Microsoft-Anmeldung speichert nur den Refresh-Token lokal auf dem Gerät.
+- Diagnose- und Absturzdaten bleiben lokal und werden nur geteilt, wenn du sie selbst exportierst.
+
 ## So funktioniert's
 
 1. App installieren und öffnen.
@@ -56,7 +63,7 @@ Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einste
 
 - Android-Smartphone mit **Android 8.0** oder neuer
 - Minecraft auf Konsole (Switch wird **nicht** unterstützt) oder PC
-- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` antworten
+- Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` über **HTTPS** antworten
   (aktuelle BDS/Geyser-Versionen tun das von sich aus)
 
 ## Online-Server: Konto-Anmeldung
@@ -72,8 +79,8 @@ Multiplayer-Token und bettet ihn in die WebRTC-Identität ein.
 verlangt, dass das Login der Konsole mit demselben Schlüssel signiert ist wie
 die Verbindung der App. Die App schreibt deshalb das Login auf das App-Konto um:
 Der Brücken-Spieler erscheint auf dem Server als **das App-Konto** (Gamertag/XUID
-des angemeldeten Microsoft-Kontos) und nur **ein** Brücken-Spieler kann gleichzeitig
-online sein. Das ist das Maximum, das das Protokoll zulässt.
+des angemeldeten Microsoft-Kontos) und nur **ein** Brücken-Spieler beziehungsweise
+**ein** verbundenes Gerät kann gleichzeitig aktiv sein. Das ist das Maximum, das das Protokoll zulässt.
 
 ---
 
@@ -88,8 +95,8 @@ Einfach forken — unter **Actions** den Workflow **„APK bauen“** per Hand s
 
 - **Komplett ohne RakNet:** LAN-Discovery über das offizielle NetherNet-Protokoll (UDP 7551),
   mit AES/HMAC nach Spec
-- **WebRTC end-to-end:** Geräte verbinden sich per WebRTC mit der App, die App per WebRTC mit dem Server
-- Die App ist ein WebRTC-Answerer für Geräte im LAN und ein WebRTC-Client zum Server
+- **WebRTC end-to-end:** Ein Gerät verbindet sich per WebRTC mit der App, die App per WebRTC mit dem Server
+- Die App ist ein WebRTC-Answerer für ein Gerät im LAN und ein WebRTC-Client zum Server
 - Serverliste, Spielerzahl, Version und Nonce kommen live aus dem `/v1/join`-Endpoint des Servers
 - Nachrichten werden als komplette NetherNet-Frames 1:1 durchgereicht
 - Nintendo Switch wird nicht unterstützt
@@ -108,7 +115,7 @@ Ableitungen von:
 | [df-mc/nethernet-spec](https://github.com/df-mc/nethernet-spec) | — (Spec, keine Lizenzdatei) | Protokollbeschreibung LAN-Discovery |
 | [Sandertv/gophertunnel](https://github.com/Sandertv/gophertunnel) | MIT (Sandertv) | Xbox-Online-Anmeldung (MSA → XSTS → PlayFab → MCToken) |
 | [GeyserMC/Geyser](https://github.com/GeyserMC/Geyser) | MIT (GeyserMC) | Transport-Identity-Binding, Login-Validierung |
-| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTP-Signaling (`/v1/join`), Identity-Validierung |
+| [CloudburstMC/Network](https://github.com/CloudburstMC/Network) | Apache 2.0 (CloudburstMC) | HTTPS-Signaling (`/v1/join`), Identity-Validierung |
 | [CloudburstMC/Protocol](https://github.com/CloudburstMC/Protocol) | Apache 2.0 (CloudburstMC) | Login-Envelope-Format |
 | [acacia-rs/acacia](https://github.com/acacia-rs/acacia) | MIT (Hexay) | Doku der Authentifizierungskette (`docs/auth.md`) |
 | [GetStream/webrtc-android](https://github.com/GetStream/webrtc-android) | Apache 2.0 | Gebündelte WebRTC-Bibliothek |

@@ -4,23 +4,23 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
-import de.bedrocklan.bridge.Guard;
 import de.bedrocklan.bridge.auth.AccountManager;
 import de.bedrocklan.bridge.nethernet.NetherIdentity;
 
 /**
  * Schreibt das Login-Paket des Geräts auf das App-Konto um, bevor es den
- * Server erreicht — der einzige Weg, den Mojangs Transport-Binding
- * (Transport-Identität muss der Login-Schlüssel sein) für LAN-Clients offenhält:
+ * Server erreicht. Das passiert immer und ohne Ausnahme: scheitert die
+ * Umschreibung (z. B. kein gültiges App-Konto-Token), wirft process()
+ * und die Verbindung wird geschlossen.
  *
  * - Envelope: {"AuthenticationType":0,"Token":"<App-Multiplayer-Token>","Certificate":""}
- *   (Token ist ein echtes, von Mojang signiertes GameServerToken mit cpk=App-Schlüssel)
  * - ClientData: Header x5u auf den App-Schlüssel, Payload unverändert, neu signiert.
  *
  * Wire-Format (LoginSerializer_v291/v818): [varint PacketID=0x01]
@@ -29,17 +29,40 @@ import de.bedrocklan.bridge.nethernet.NetherIdentity;
  * Entries = [varuint Länge][Paket].
  */
 public final class LoginRewriter {
+    /**
+     * Umschreibung nötig, aber fehlgeschlagen. Das Original darf nie
+     * weitergesendet werden; Aufrufer müssen die Verbindung schließen.
+     */
+    public static final class LoginFailedException extends Exception {
+        LoginFailedException(String reason) {
+            super(reason);
+        }
+    }
+
+    /** Liefert das Multiplayer-Token; nie blockierend im Callback-Thread. */
+    public interface TokenProvider {
+        String multiplayerToken(PublicKey key) throws Exception;
+    }
+
     private static final int LOGIN_PACKET_ID = 0x01;
     private static final int ALGO_DEFLATE = 0x00;
     private static final int ALGO_NONE = (byte) 0xff & 0xff;
     private static final int MAX_BATCH = 8 << 20;
 
-    private final AccountManager account;
+    private final TokenProvider tokens;
     private final NetherIdentity identity;
     private boolean done;
 
-    public LoginRewriter(AccountManager account, NetherIdentity identity) {
-        this.account = account;
+    public LoginRewriter(final AccountManager account, NetherIdentity identity) {
+        this(key -> {
+            String token = account.cachedMultiplayerToken(key);
+            if (token == null) account.prewarm(key);
+            return token;
+        }, identity);
+    }
+
+    LoginRewriter(TokenProvider tokens, NetherIdentity identity) {
+        this.tokens = tokens;
         this.identity = identity;
     }
 
@@ -50,33 +73,31 @@ public final class LoginRewriter {
     /**
      * Verarbeitet eine Nachricht vom Gerät Richtung Server. Liefert null,
      * wenn nichts umgeschrieben wurde (Nachricht unverändert weiterleiten),
-     * sonst die neue Nachricht.
+     * sonst die neue Nachricht. Wirft, wenn ein Login erkannt, aber nicht
+     * umgeschrieben werden konnte.
      */
-    public byte[] process(byte[] message) {
+    public byte[] process(byte[] message) throws LoginFailedException {
         if (done || message.length < 2) return null;
         int algo = message[0] & 0xff;
         byte[] entries;
         if (algo == ALGO_DEFLATE) {
             entries = inflate(message, 1);
             if (entries == null) {
-                Guard.log("Deko: inflate fehlgeschlagen (" + message.length + " Bytes), Anfang: "
-                        + hex(message, 0, Math.min(24, message.length)) + ", Grund: " + inflateError);
-                return null;
+                // Ein nicht entpackbarer Batch kann nicht auf ein Login geprüft
+                // werden — kein Passthrough: Original verwerfen, Verbindung schließen.
+                throw new LoginFailedException(
+                        "Login-Batch nicht entpackbar – Umschreibung nicht prüfbar, "
+                                + "Original wird nicht weitergesendet");
             }
         } else if (algo == ALGO_NONE) {
             entries = slice(message, 1);
         } else {
             // Vor den NetworkSettings gibt es kein algo-Byte — nichts umzuschreiben.
-            Guard.log("Deko: rohe Nachricht (" + message.length + " Bytes), Anfang: "
-                    + hex(message, 0, Math.min(12, message.length)));
             return null;
         }
-        Guard.log("Deko: algo=" + algo + ", " + message.length + " Bytes entpackt "
-                + entries.length + " Bytes, Anfang: " + hex(entries, 0, Math.min(16, entries.length)));
         byte[] rewritten = rewriteEntries(entries);
         if (rewritten == null) return null;
         done = true;
-        Guard.log("Login auf App-Konto umgeschrieben");
         if (algo == ALGO_DEFLATE) {
             byte[] compressed = deflate(rewritten);
             byte[] out = new byte[compressed.length + 1];
@@ -91,19 +112,19 @@ public final class LoginRewriter {
     }
 
     /** Geht die Batch-Einträge durch und ersetzt den Login-Eintrag. */
-    private byte[] rewriteEntries(byte[] entries) {
+    private byte[] rewriteEntries(byte[] entries) throws LoginFailedException {
         List<byte[]> out = new ArrayList<>();
         int off = 0;
         boolean found = false;
         while (off < entries.length) {
             int[] pos = {off};
             int len = getVaruint(entries, pos);
-            if (len <= 0 || pos[0] + len > entries.length) return null;
+            if (len <= 0 || pos[0] + len > entries.length) {
+                throw new LoginFailedException("Login-Batch-Eintrag ungültig");
+            }
             byte[] entry = slice(entries, pos[0], pos[0] + len);
             off = pos[0] + len;
             byte[] replacement = rewriteEntry(entry);
-            Guard.log("Deko: Eintrag " + entry.length + " Bytes, Anfang: "
-                    + hex(entry, 0, Math.min(8, entry.length)));
             out.add(replacement != null ? replacement : entry);
             if (replacement != null) found = true;
         }
@@ -117,29 +138,39 @@ public final class LoginRewriter {
     }
 
     /** Baut einen Login-Eintrag neu; null, wenn es keiner ist. */
-    private byte[] rewriteEntry(byte[] entry) {
+    private byte[] rewriteEntry(byte[] entry) throws LoginFailedException {
         int[] pos = {0};
         int packetId = getVaruint(entry, pos);
         if (packetId != LOGIN_PACKET_ID) return null;
-        if (pos[0] + 4 > entry.length) return null;
+        if (pos[0] + 4 > entry.length) throw new LoginFailedException("Login-Paket abgeschnitten");
         int protocol = getIntLE(entry, pos[0]);
         pos[0] += 4;
         int blobLen = getVaruint(entry, pos);
-        if (pos[0] + blobLen > entry.length) return null;
+        if (blobLen < 0 || pos[0] + blobLen > entry.length) {
+            throw new LoginFailedException("Login-Paket-Blob ungültig");
+        }
         int blobStart = pos[0];
+        if (blobStart + 4 > entry.length) throw new LoginFailedException("Login-Paket abgeschnitten");
         int authLen = getIntLE(entry, blobStart);
-        if (blobStart + 4 + authLen > entry.length) return null;
+        if (authLen < 0 || blobStart + 4 + authLen > entry.length) {
+            throw new LoginFailedException("Login-Envelope ungültig");
+        }
         int clientStart = blobStart + 4 + authLen;
+        if (clientStart + 4 > entry.length) throw new LoginFailedException("Login-Paket abgeschnitten");
         int clientLen = getIntLE(entry, clientStart);
-        if (clientStart + 4 + clientLen > entry.length) return null;
+        if (clientLen < 0 || clientStart + 4 + clientLen > entry.length) {
+            throw new LoginFailedException("Login-ClientData ungültig");
+        }
         String clientJwt = new String(entry, clientStart + 4, clientLen, StandardCharsets.UTF_8);
 
         String token;
         try {
-            token = account.multiplayerToken(identity.publicKey());
+            token = tokens.multiplayerToken(identity.publicKey());
         } catch (Exception e) {
-            Guard.logError("Multiplayer-Token für Login-Umschreibung fehlgeschlagen", e);
-            return null;
+            throw new LoginFailedException("Multiplayer-Token nicht verfügbar");
+        }
+        if (token == null || token.isEmpty()) {
+            throw new LoginFailedException("App-Konto-Token nicht bereit — Anmeldung prüfen");
         }
         String newAuth;
         try {
@@ -149,11 +180,10 @@ public final class LoginRewriter {
                     .put("Certificate", "")
                     .toString();
         } catch (org.json.JSONException e) {
-            Guard.logError("Envelope-Bau fehlgeschlagen", e);
-            return null;
+            throw new LoginFailedException("Login-Envelope nicht baubar");
         }
         String newClient = resignClientData(clientJwt);
-        if (newClient == null) return null;
+        if (newClient == null) throw new LoginFailedException("ClientData-Neusignierung fehlgeschlagen");
 
         byte[] authBytes = newAuth.getBytes(StandardCharsets.UTF_8);
         byte[] clientBytes = newClient.getBytes(StandardCharsets.UTF_8);
@@ -185,21 +215,11 @@ public final class LoginRewriter {
                     .getBytes(StandardCharsets.UTF_8));
             return newHeader + "." + newPayload + "." + signature;
         } catch (Throwable e) {
-            Guard.logError("ClientData-Neusignierung fehlgeschlagen", e);
             return null;
         }
     }
 
     // ---------------------------------------------------------------- Hilfen
-
-    private static String hex(byte[] b, int from, int to) {
-        StringBuilder out = new StringBuilder();
-        for (int i = from; i < to; i++) {
-            if (out.length() > 0) out.append(' ');
-            out.append(String.format("%02x", b[i] & 0xff));
-        }
-        return out.toString();
-    }
 
     private static byte[] slice(byte[] b, int from) {
         return slice(b, from, b.length);
@@ -223,7 +243,7 @@ public final class LoginRewriter {
         out.write((v >> 24) & 0xff);
     }
 
-    private static int getVaruint(byte[] b, int[] pos) {
+    static int getVaruint(byte[] b, int[] pos) {
         int result = 0;
         int shift = 0;
         int p = pos[0];
@@ -233,17 +253,18 @@ public final class LoginRewriter {
             result |= (c & 0x7f) << shift;
             if ((c & 0x80) == 0) break;
             shift += 7;
+            if (shift > 28) return -1;
         }
         pos[0] = p;
         return result;
     }
 
-    private static void writeVaruint(ByteArrayOutputStream out, int v) {
+    static void writeVaruint(ByteArrayOutputStream out, int v) {
         byte[] buf = varuintBytes(v);
         out.write(buf, 0, buf.length);
     }
 
-    private static byte[] varuintBytes(int v) {
+    static byte[] varuintBytes(int v) {
         ByteArrayOutputStream out = new ByteArrayOutputStream(5);
         while ((v & ~0x7f) != 0) {
             out.write((v & 0x7f) | 0x80);
@@ -253,10 +274,7 @@ public final class LoginRewriter {
         return out.toByteArray();
     }
 
-    private static String inflateError = "?";
-
     private static byte[] inflate(byte[] data, int from) {
-        inflateError = "?";
         try {
             // Bedrock „ZLIB“ ist on the wire raw deflate ohne zlib-Header
             // (Geyser: ZlibCompression(Zlib.RAW)).
@@ -269,14 +287,12 @@ public final class LoginRewriter {
                 int n = inf.inflate(buf);
                 if (n == 0) {
                     if (inf.needsInput()) {
-                        inflateError = "needsInput bei " + inf.getRemaining() + " Restbytes";
                         return null;
                     }
                     continue;
                 }
                 total += n;
                 if (total > MAX_BATCH) {
-                    inflateError = "zu groß";
                     return null;
                 }
                 out.write(buf, 0, n);
@@ -284,7 +300,6 @@ public final class LoginRewriter {
             inf.end();
             return out.toByteArray();
         } catch (Exception e) {
-            inflateError = e.toString();
             return null;
         }
     }

@@ -15,12 +15,16 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import de.bedrocklan.bridge.Guard;
 
@@ -34,7 +38,9 @@ import de.bedrocklan.bridge.Guard;
  * prismarine-auth und acacia-auth (docs/auth.md).
  *
  * Speicher: SharedPreferences "accounts" mit mehreren Konten und einem
- * aktiven; ein einmal angemeldetes Einzelkonto wird einmalig migriert.
+ * aktiven; Refresh-Tokens liegen AES-GCM-verschlüsselt über den
+ * AndroidKeyStore (TokenVault). Bestehende Klartextkonten werden migriert,
+ * ein einmal angemeldetes Einzelkonto wird einmalig übernommen.
  */
 public final class AccountManager {
     private static final String CLIENT_ID = "00000000403fc600";
@@ -70,9 +76,22 @@ public final class AccountManager {
         }
     }
 
+    private static final long RENEW_BEFORE_MS = 120_000;
+    private static final long RETRY_MS = 30_000;
+
     private final SharedPreferences store;
+    private final TokenVault vault = new TokenVault();
+    private final ScheduledExecutorService prewarmer = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "token-prewarm");
+        t.setDaemon(true);
+        return t;
+    });
     private volatile boolean signingIn;
     private volatile boolean cancelSignIn;
+
+    /** Zählt Prewarm-Ketten: nur die neueste Generation plant weiter. */
+    private final Object prewarmLock = new Object();
+    private int prewarmGeneration;
 
     // Laufzeit-Cache (pro aktives Konto, bei Wechsel zu leeren)
     private String playfabTicket;
@@ -87,6 +106,7 @@ public final class AccountManager {
         Context app = ctx.getApplicationContext();
         this.store = app.getSharedPreferences("accounts", Context.MODE_PRIVATE);
         migrateLegacy(app.getSharedPreferences("account", Context.MODE_PRIVATE));
+        migratePlaintextTokens();
     }
 
     /** Übernimmt einmalig ein Konto aus dem alten Einfeld-Speicher. */
@@ -99,7 +119,6 @@ public final class AccountManager {
         if (refresh != null) {
             String id = legacy.getString("xuid", null);
             if (id == null || id.isEmpty()) id = UUID.randomUUID().toString();
-            e.putString("acct_" + id + "_refresh", refresh);
             String gtg = legacy.getString("gamertag", null);
             if (gtg != null) e.putString("acct_" + id + "_gtg", gtg);
             String xuid = legacy.getString("xuid", null);
@@ -108,9 +127,60 @@ public final class AccountManager {
             ids.add(id);
             e.putString("ids", new JSONArray(ids).toString());
             e.putString("active", id);
+            // Erst verschlüsseln, dann alles auf einmal committen: Bei einem
+            // Keystore-Fehler wird der Editor nie committet, damit kein
+            // Phantom-Konto (ids/active ohne Refresh-Token) entsteht; die
+            // Migration wird beim nächsten Start erneut versucht.
+            String encrypted;
+            try {
+                encrypted = vault.encrypt(refresh);
+            } catch (GeneralSecurityException ex) {
+                Guard.logError("Legacy-Konto konnte nicht verschlüsselt werden", ex);
+                return;
+            }
+            e.putString("acct_" + id + "_refresh", encrypted).commit();
+            legacy.edit().clear().apply();
+            return;
         }
         e.commit();
         legacy.edit().clear().apply();
+    }
+
+    /**
+     * Migriert bestehende Klartext-Refresh-Tokens in den Vault. Bei Fehlern
+     * bleibt der Altwert unangetastet liegen (kein stiller Datenverlust);
+     * das Konto ist dann erst nach erfolgreicher Migration nutzbar.
+     */
+    private void migratePlaintextTokens() {
+        for (String id : ids()) {
+            String key = "acct_" + id + "_refresh";
+            String stored = store.getString(key, null);
+            if (stored == null || TokenVault.isEncrypted(stored)) continue;
+            try {
+                store.edit().putString(key, vault.encrypt(stored)).commit();
+            } catch (GeneralSecurityException e) {
+                Guard.logError("Refresh-Token-Migration fehlgeschlagen für Konto " + id, e);
+            }
+        }
+    }
+
+    private String readRefresh(String id) throws IOException {
+        String stored = store.getString("acct_" + id + "_refresh", null);
+        if (stored == null) return null;
+        if (!TokenVault.isEncrypted(stored)) return stored;
+        try {
+            return vault.decrypt(stored);
+        } catch (GeneralSecurityException e) {
+            throw new IOException("Konto-Speicher nicht lesbar (Keystore)", e);
+        }
+    }
+
+    private void writeRefresh(String id, String refresh) throws IOException {
+        try {
+            store.edit().putString("acct_" + id + "_refresh", vault.encrypt(refresh)).apply();
+        } catch (GeneralSecurityException e) {
+            throw new IOException("Konto-Speicher nicht schreibbar (Keystore)", e);
+        }
     }
 
     // ---------------------------------------------------------------- Kontenverwaltung
@@ -255,8 +325,12 @@ public final class AccountManager {
                     List<String> ids = ids();
                     ids.add(id);
                     clearCaches();
+                    try {
+                        writeRefresh(id, refresh);
+                    } catch (IOException ke) {
+                        throw new IOException("Anmeldung nicht speicherbar (Keystore)", ke);
+                    }
                     store.edit()
-                            .putString("acct_" + id + "_refresh", refresh)
                             .putString("ids", new JSONArray(ids).toString())
                             .putString("active", id)
                             .apply();
@@ -303,7 +377,7 @@ public final class AccountManager {
     private synchronized String msaAccessToken() throws IOException {
         String id = activeId();
         if (id == null) throw new IOException("nicht angemeldet");
-        String refresh = store.getString("acct_" + id + "_refresh", null);
+        String refresh = readRefresh(id);
         if (refresh == null) throw new IOException("nicht angemeldet");
         String resp = httpForm(LIVE_TOKEN,
                 "client_id=" + CLIENT_ID
@@ -315,7 +389,7 @@ public final class AccountManager {
             String access = token.getString("access_token");
             String newRefresh = token.optString("refresh_token", "");
             if (!newRefresh.isEmpty()) {
-                store.edit().putString("acct_" + id + "_refresh", newRefresh).apply();
+                writeRefresh(id, newRefresh);
             }
             return access;
         } catch (JSONException e) {
@@ -473,6 +547,59 @@ public final class AccountManager {
         }
     }
 
+    /**
+     * Holt das Multiplayer-Token im Hintergrund und erneuert es vor Ablauf.
+     * Darf von jedem Thread aufgerufen werden; blockiert nie. Schlägt der
+     * Fetch fehl, wird die Kette nach {@link #RETRY_MS} erneut geplant —
+     * eine neuere prewarm()-Kette (Generationszähler) löst die alte ab,
+     * damit sich nicht beliebig viele parallele Ketten ansammeln.
+     */
+    public void prewarm(final PublicKey key) {
+        if (key == null || !isSignedIn()) return;
+        final int gen;
+        synchronized (prewarmLock) {
+            gen = ++prewarmGeneration;
+        }
+        prewarmer.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (!isSignedIn()) return; // abgemeldet: Kette endet
+                boolean ok = false;
+                try {
+                    multiplayerToken(key);
+                    ok = true;
+                } catch (Exception e) {
+                    Guard.logError("Token-Vorbereitung fehlgeschlagen", e);
+                }
+                synchronized (prewarmLock) {
+                    if (gen != prewarmGeneration) return; // neuere Kette übernimmt
+                }
+                long delay = RETRY_MS;
+                if (ok) {
+                    synchronized (AccountManager.this) {
+                        if (signedToken != null) {
+                            long until = signedTokenValidUntil - RENEW_BEFORE_MS;
+                            delay = Math.max(1_000, until - System.currentTimeMillis());
+                        }
+                    }
+                }
+                prewarmer.schedule(this, delay, TimeUnit.MILLISECONDS);
+            }
+        });
+    }
+
+    /**
+     * Nur-Cache-Zugriff für Callback-Threads: liefert das gültige
+     * Multiplayer-Token sofort oder null — macht keine Netzwerkzugriffe
+     * und blockiert nie.
+     */
+    public synchronized String cachedMultiplayerToken(PublicKey key) {
+        if (key == null || signedToken == null) return null;
+        String encoded = Base64.getEncoder().encodeToString(key.getEncoded());
+        if (!encoded.equals(signedTokenKey)) return null;
+        return System.currentTimeMillis() < signedTokenValidUntil ? signedToken : null;
+    }
+
     private String deviceId() {
         String id = store.getString("device_id", null);
         if (id == null) {
@@ -505,7 +632,11 @@ public final class AccountManager {
     // ------------------------------------------------------------------ HTTP-Hilfen
 
     private static String enc(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
+        try {
+            return URLEncoder.encode(s, StandardCharsets.UTF_8.name());
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static HttpURLConnection open(String url) throws IOException {

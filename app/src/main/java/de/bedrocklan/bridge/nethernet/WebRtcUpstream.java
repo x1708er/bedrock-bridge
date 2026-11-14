@@ -257,14 +257,9 @@ public final class WebRtcUpstream {
                 String attr = token != null
                         ? identity.clientAttribute(offerSdp, token)
                         : identity.clientAttribute(offerSdp);
-                if (token != null) {
-                    Guard.log("Multiplayer-Token-Claims: " + claimNames(token));
-                }
                 if (attr != null) {
-                    Guard.log("Identity-Attribut (" + attr.length() + " Bytes)");
                     munged = new StringBuilder(
                             NetherIdentity.insertSessionAttribute(munged.toString(), "a=identity:" + attr));
-                    Guard.log("Offer an Server: " + munged.toString().replace("\r", "").replace("\n", "|"));
                 }
             } catch (Throwable e) {
                 Guard.logError("Identitäts-Assertion fehlgeschlagen", e);
@@ -301,25 +296,6 @@ public final class WebRtcUpstream {
             throw new IOException("DataChannel blieb zu (NAT/Firewall?)");
         }
         listener.onLog("NetherNet verbunden");
-    }
-
-    /** Sendet eine NetherNet-Nachricht mit Segment-Framing. */
-    private static String claimNames(String jwt) {
-        try {
-            String[] parts = jwt.split("\\.");
-            byte[] payload = java.util.Base64.getUrlDecoder().decode(parts[1]);
-            org.json.JSONObject claims = new org.json.JSONObject(new String(payload, java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder out = new StringBuilder();
-            for (java.util.Iterator<String> it = claims.keys(); it.hasNext(); ) {
-                String k = it.next();
-                if (out.length() > 0) out.append(',');
-                out.append(k);
-                if (k.equals("iss") || k.equals("aud")) out.append('=').append(claims.get(k));
-            }
-            return out.toString();
-        } catch (Throwable e) {
-            return "unlesbar: " + e;
-        }
     }
 
     public void sendMessage(byte[] message) {

@@ -4,6 +4,7 @@ import android.content.Context;
 
 import org.webrtc.PeerConnectionFactory;
 
+import de.bedrocklan.bridge.Diagnostics;
 import de.bedrocklan.bridge.Guard;
 import de.bedrocklan.bridge.discovery.LanClient;
 import de.bedrocklan.bridge.nethernet.NetherNetClient;
@@ -39,13 +40,13 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
     private volatile boolean closed;
 
     public BedrockBridge(PeerConnectionFactory factory, LanClient client,
-                         String host, int port,
+                         NetherNetClient signaling,
                          de.bedrocklan.bridge.nethernet.NetherIdentity identity,
                          de.bedrocklan.bridge.auth.AccountManager account,
                          Listener listener) {
         this.factory = factory;
         this.client = client;
-        this.signaling = new NetherNetClient(host, port);
+        this.signaling = signaling;
         this.listener = listener;
         this.identity = identity;
         this.account = account;
@@ -83,22 +84,50 @@ public final class BedrockBridge implements WebRtcUpstream.Listener {
         return upstreamReady;
     }
 
-    /** Nachricht vom Gerät Richtung Server; das Login wird auf das App-Konto umgeschrieben. */
+    /**
+     * Nachricht vom Gerät Richtung Server; das Login wird immer auf das
+     * App-Konto umgeschrieben. Scheitert das, wird das Original-Paket nie
+     * weitergesendet und die Verbindung mit Fehlergrund geschlossen.
+     *
+     * Senden und Outbox-Flush laufen beide unter demselben outbox-Lock:
+     * upstreamReady wird gesetzt, die gestapelten Pakete werden in ihrer
+     * Original-Reihenfolge geflusht und direkt gesendete Pakete reihen sich
+     * danach sauber ein — die Paketreihenfolge kann nie vertauscht werden.
+     */
     public void fromClient(byte[] message) {
         if (closed) return;
         try {
             byte[] rewritten = loginRewriter.process(message);
             if (rewritten != null) message = rewritten;
+        } catch (LoginRewriter.LoginFailedException e) {
+            Guard.logError("Login abgelehnt", e);
+            close("Login abgelehnt: " + e.getMessage());
+            return;
         } catch (Throwable e) {
             Guard.logError("Login-Umschreibung fehlgeschlagen", e);
+            close("Login-Umschreibung fehlgeschlagen");
+            return;
         }
         synchronized (outbox) {
             if (!upstreamReady) {
-                if (outbox.size() < OUTBOX_LIMIT) outbox.add(message);
+                if (outbox.size() < OUTBOX_LIMIT) {
+                    outbox.add(message);
+                } else {
+                    Diagnostics.log("bridge", "Outbox übergelaufen ("
+                            + outbox.size() + " Pakete) – Paket verworfen");
+                    Guard.logError("Outbox übergelaufen (" + outbox.size()
+                            + " Pakete) – Paket verworfen", null);
+                }
                 return;
             }
+            WebRtcUpstream up = upstream;
+            if (up == null) return;
+            try {
+                up.sendMessage(message);
+            } catch (Throwable e) {
+                Guard.logError("Senden zum Server", e);
+            }
         }
-        upstream.sendMessage(message);
     }
 
     /** Nachricht vom Server Richtung Gerät. */

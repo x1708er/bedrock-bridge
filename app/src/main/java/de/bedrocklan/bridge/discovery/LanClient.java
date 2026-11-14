@@ -49,7 +49,7 @@ public final class LanClient {
     private final NetherIdentity identity;
 
     private final List<String> pendingCandidates = Collections.synchronizedList(new ArrayList<>());
-    private boolean remoteSet;
+    private volatile boolean remoteSet; // WebRTC-Callback-Threads vs. Signaling-Thread
     private volatile boolean open;
     private volatile boolean closed;
     volatile long lastSeen = System.currentTimeMillis();
