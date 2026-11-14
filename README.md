@@ -1,6 +1,6 @@
 # Bedrock LAN-Brücke
 
-**Kostenlos. Werbefrei. Open Source. Kein Xbox-Konto nötig.**
+**Kostenlos. Werbefrei. Open Source.**
 
 Zeigt einen öffentlichen Bedrock-Server in der LAN-Liste von Minecraft an —
 auf Konsole und PC. Eine Seite, ein Eingabefeld, ein Knopf.
