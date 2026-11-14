@@ -48,6 +48,9 @@ public class MainActivity extends Activity {
     private TextView accountStatus;
     private Button accountButton;
     private TextView updateRow;
+    private TextView serverName;
+    private TextView serverMeta;
+    private LinearLayout serverCard;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override
@@ -127,6 +130,25 @@ public class MainActivity extends Activity {
         status.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         status.setPadding(dp(4), 0, dp(4), 0);
         root.addView(status);
+
+        LinearLayout serverCard = card();
+        this.serverCard = serverCard;
+        serverName = new TextView(this);
+        serverName.setTextSize(15);
+        serverName.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        serverName.setTextColor(TEXT);
+        serverName.setSingleLine(true);
+        serverName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        serverCard.addView(serverName);
+        serverMeta = new TextView(this);
+        serverMeta.setTextSize(13);
+        serverMeta.setTextColor(MUTED);
+        LinearLayout.LayoutParams smp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        smp.topMargin = dp(2);
+        serverCard.addView(serverMeta, smp);
+        root.addView(serverCard, cardLp());
+        serverCard.setVisibility(View.GONE);
 
         LinearLayout accountCard = card();
 
@@ -256,6 +278,27 @@ public class MainActivity extends Activity {
         } else {
             status.setText(State.status);
             status.setTextColor(on ? 0xFF6EDC7E : MUTED);
+        }
+        String name = State.serverName;
+        if (on && name != null && !name.isEmpty()) {
+            serverName.setText(name);
+            StringBuilder meta = new StringBuilder();
+            if (State.players >= 0) {
+                meta.append(State.players).append(State.maxPlayers > 0 ? " / " + State.maxPlayers : "")
+                        .append(" Spieler");
+            }
+            if (State.levelName != null && !State.levelName.isEmpty()) {
+                if (meta.length() > 0) meta.append(" · ");
+                meta.append(State.levelName);
+            }
+            if (State.version != null && !State.version.isEmpty()) {
+                if (meta.length() > 0) meta.append(" · ");
+                meta.append("v").append(State.version);
+            }
+            serverMeta.setText(meta.toString());
+            serverCard.setVisibility(View.VISIBLE);
+        } else {
+            serverCard.setVisibility(View.GONE);
         }
     }
 

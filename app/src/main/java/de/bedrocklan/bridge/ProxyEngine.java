@@ -101,6 +101,11 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         factory = null;
         if (f != null) Guard.closeLater(f::dispose);
         State.clients = 0;
+        State.clearServerInfo();
+    }
+
+    private static String d(String s) {
+        return s == null ? "" : s;
     }
 
     // ---------------------------------------------------------------- Schleifen
@@ -187,6 +192,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                 NetherNetClient.Status status = upstreamStatus.fetchStatus(2500);
                 if (status != null) {
                     serverData = buildServerData(status);
+                    State.setServerInfo(d(serverData.serverName), d(serverData.levelName),
+                            serverData.players, serverData.maxPlayerCount, d(serverData.version));
                     problem = null;
                 } else {
                     problem = "Server bietet kein NetherNet an (HTTP-Endpunkt fehlt).";
