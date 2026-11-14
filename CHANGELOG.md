@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Changed
-- NetherNet signaling prefers HTTPS and falls back to HTTP with a visible warning.
+- NetherNet signaling prefers HTTPS and automatically falls back to HTTP when the server does not offer TLS.
 - The bridge accepts exactly one connected device at a time; a second device receives a clear rejection.
 - Microsoft refresh tokens are now stored encrypted using the Android Keystore.
 - Signaling messages are validated against the active connection and stale peers are cleaned up.

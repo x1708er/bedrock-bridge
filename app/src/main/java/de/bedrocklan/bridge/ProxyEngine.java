@@ -45,7 +45,6 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
 
     private volatile boolean running;
     private volatile String problem;
-    private volatile String warning;
     private DatagramSocket socket;
     private PeerConnectionFactory factory;
     private NetherNetClient upstreamStatus;
@@ -262,11 +261,8 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
                     State.setServerInfo(d(serverData.serverName), d(serverData.levelName),
                             serverData.playerCount, serverData.maxPlayerCount, d(serverData.version));
                     problem = null;
-                    warning = upstreamStatus.endpointInsecure()
-                            ? appContext.getString(R.string.status_http_fallback) : null;
                 } else {
                     problem = appContext.getString(R.string.status_no_nethernet);
-                    warning = null;
                 }
             } catch (IOException e) {
                 if (!running) return;
@@ -437,7 +433,6 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
             State.status = joinProblem;
             return;
         }
-        String w = warning;
         if (p != null) {
             State.status = p;
         } else if (n > 0) {
@@ -447,7 +442,6 @@ final class ProxyEngine implements LanClient.Host, BedrockBridge.Listener {
         } else {
             State.status = appContext.getString(R.string.status_idle);
         }
-        if (w != null) State.status += "\n" + w;
     }
 
     private void send(InetSocketAddress to, byte[] data) {

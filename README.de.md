@@ -65,8 +65,7 @@ Falls die Schaltfläche fehlt: Play Store → Profil → Play Protect → Einste
 - Minecraft auf Konsole (Switch wird **nicht** unterstützt) oder PC
 - Der Server muss **NetherNet** anbieten, also auf `GET /v1/join` antworten
   (aktuelle BDS/Geyser-Versionen tun das von sich aus)
-- Die App bevorzugt **HTTPS**. Bietet der Server nur **HTTP** an, wird ein
-  Fallback mit Warnhinweis genutzt
+- Die App bevorzugt **HTTPS**; ist nur **HTTP** verfügbar, wird **HTTP** verwendet
 
 ## Online-Server: Konto-Anmeldung
 

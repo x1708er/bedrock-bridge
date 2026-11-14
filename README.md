@@ -65,8 +65,7 @@ temporarily disable "Scan apps", install, re-enable.
 - Minecraft on console (Switch is **not** supported) or PC
 - The server must offer **NetherNet**, i.e. answer `GET /v1/join`
   (current BDS/Geyser versions do that out of the box)
-- The app prefers **HTTPS**. If the server only offers **HTTP**, a fallback
-  with a visible warning is used
+- The app prefers **HTTPS**; if only **HTTP** is available, **HTTP** is used
 
 ## Online servers: account sign-in
 

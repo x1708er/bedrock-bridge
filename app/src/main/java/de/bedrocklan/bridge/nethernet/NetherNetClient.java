@@ -16,8 +16,7 @@ import java.util.Random;
 /**
  * NetherNet-Signaling über den Server-Endpunkt (GET/POST /v1/join), wie ihn der
  * Vanilla-Client für "externe Server" verwendet (df-mc/nethernet-spec). HTTPS
- * wird bevorzugt; fehlt TLS, wird auf HTTP zurückgefallen und der Aufrufer kann
- * das über {@link #endpointInsecure()} als Warnung anzeigen.
+ * wird bevorzugt; fehlt TLS, wird automatisch auf HTTP zurückgefallen.
  */
 public final class NetherNetClient {
     private final String host;
@@ -131,11 +130,6 @@ public final class NetherNetClient {
     /** HTTPS-Kandidaten zuerst, danach HTTP-Fallback. */
     private List<String> candidateBases() {
         return candidateBases(host, port);
-    }
-
-    /** True, wenn die aktuell gecachte Signaling-Basis unverschlüsseltes HTTP nutzt. */
-    public synchronized boolean endpointInsecure() {
-        return endpointBase != null && endpointBase.startsWith("http://");
     }
 
     /**
