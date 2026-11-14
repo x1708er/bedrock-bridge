@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.8 – 2026-11-14
 
 ### Changed
 - NetherNet signaling prefers HTTPS and automatically falls back to HTTP when the server does not offer TLS.
