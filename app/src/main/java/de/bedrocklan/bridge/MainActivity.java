@@ -85,6 +85,11 @@ public class MainActivity extends Activity {
     };
 
     @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleHelper.wrap(newBase));
+    }
+
+    @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
 
@@ -95,6 +100,21 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(28), dp(20), dp(20));
         root.setBackgroundColor(BG);
+
+        Button languageButton = new Button(this);
+        languageButton.setTextSize(12);
+        languageButton.setTextColor(TEXT);
+        languageButton.setAllCaps(false);
+        languageButton.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        languageButton.setPadding(dp(12), dp(6), dp(12), dp(6));
+        setRipple(languageButton, rounded(0x00000000, STROKE));
+        languageButton.setContentDescription(getString(R.string.language_switch));
+        languageButton.setText(currentLanguage().equals("de") ? "EN" : "DE");
+        languageButton.setOnClickListener(v -> toggleLanguage());
+        LinearLayout.LayoutParams langLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        langLp.bottomMargin = dp(10);
+        root.addView(languageButton, langLp);
 
         TextView title = new TextView(this);
         title.setText(R.string.app_title);
@@ -825,6 +845,16 @@ public class MainActivity extends Activity {
 
     private void toast(String s) {
         android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private String currentLanguage() {
+        return getResources().getConfiguration().getLocales().get(0).getLanguage();
+    }
+
+    private void toggleLanguage() {
+        String next = currentLanguage().equals("de") ? "en" : "de";
+        LocaleHelper.write(this, next);
+        recreate();
     }
 
     private TextView link() {

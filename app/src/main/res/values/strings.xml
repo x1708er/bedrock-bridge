@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_title">Bedrock LAN-Brücke</string>
+    <string name="language_switch">Sprache wechseln</string>
     <string name="subtitle">Minecraft-Bedrock-Server im LAN sichtbar machen</string>
     <string name="address_hint">Serveradresse (mit oder ohne Port)</string>
     <string name="address_example">z. B. play.beispiel.de:19132</string>

@@ -15,6 +15,7 @@
 - Release APKs are built with R8 and resource shrinking.
 
 ### Added
+- Language switch (EN/DE) in the top-left of the main screen.
 - In-app diagnostics with redacted event ring buffer, crash-log rotation, and manual export.
 - Battery and notification-permission guidance.
 - IPv6 address parsing support.

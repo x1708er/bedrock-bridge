@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_title">Bedrock LAN Bridge</string>
+    <string name="language_switch">Switch language</string>
     <string name="subtitle">Make your Minecraft Bedrock server visible on the LAN</string>
     <string name="address_hint">Server address (with or without port)</string>
     <string name="address_example">e.g. play.example.com:19132</string>
